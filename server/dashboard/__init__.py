@@ -22,6 +22,11 @@ _DASHBOARD_HTML = (
 )
 
 
+@router.get("/dashboard", response_class=HTMLResponse)
+async def dashboard_page() -> str:
+    return _DASHBOARD_HTML
+
+
 @router.get("/api/models")
 async def list_models() -> dict:
     """Return status of all loaded models."""
