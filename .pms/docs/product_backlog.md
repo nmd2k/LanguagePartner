@@ -39,12 +39,12 @@
 
 | ID | Title | Type | Priority | Status | Sprint | Notes |
 |----|-------|------|----------|--------|--------|-------|
-| PB-017 | End-to-end integration test (real Android device → local server) | Chore | High | Open | 3 | Manual test script in docs |
-| PB-018 | Read / Speak mode toggle — UI + server config message on switch | Feature | High | Open | 3 | Persist mode within session |
-| PB-019 | Error handling — server unreachable, ASR fail, model load fail, empty transcript | Feature | High | Open | 3 | User-visible error messages; no silent drops |
-| PB-020 | Server GPU/CPU auto-detect (CUDA → MPS → CPU fallback) | Feature | Medium | Open | 3 | Log active device on startup |
-| PB-021 | Setup documentation (README: server install + APK sideload steps) | Chore | Medium | Open | 3 | Target: non-developer user can follow |
-| PB-022 | Server request logging (utterance ID, ASR latency, translation latency, total) | Chore | Low | Open | 3 | stdout structured log |
+| PB-017 | End-to-end integration test (real Android device → local server) | Chore | High | Done | 3 | Manual test script in docs |
+| PB-018 | Read / Speak mode toggle — UI + server config message on switch | Feature | High | Done | 3 | Persist mode within session |
+| PB-019 | Error handling — server unreachable, ASR fail, model load fail, empty transcript | Feature | High | Done | 3 | User-visible error messages; no silent drops |
+| PB-020 | Server GPU/CPU auto-detect (CUDA → MPS → CPU fallback) | Feature | Medium | Done | 3 | Log active device on startup |
+| PB-021 | Setup documentation (README: server install + APK sideload steps) | Chore | Medium | Done | 3 | Target: non-developer user can follow |
+| PB-022 | Server request logging (utterance ID, ASR latency, translation latency, total) | Chore | Low | Done | 3 | stdout structured log |
 
 ---
 
@@ -86,3 +86,4 @@
 | 2026-04-30 | Agent + nmd2k | Created — MVP scope (3 sprints) + future backlog |
 | 2026-04-30 | Agent (sprint/1) | PB-001–008 marked Done after Sprint 1 completion |
 | 2026-04-30 | Agent (sprint/2) | PB-009–016 marked Done after Sprint 2 completion |
+| 2026-04-30 | Agent (sprint/3) | PB-017–022 marked Done after Sprint 3 completion; MVP complete |

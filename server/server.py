@@ -7,10 +7,14 @@ Flags:
     --port    WebSocket listen port (default: 8080)
     --model   Whisper model size: tiny/base/small/medium/large (default: medium)
     --device  Inference device: auto/cpu/cuda (default: auto)
-              auto → tries CUDA first, falls back to CPU.
+              auto → tries CUDA first, then MPS (Apple Silicon), falls back to CPU.
+
+Environment variables:
+    MOCK_MODE=1  Start with mock backends (no model loading, for testing)
 """
 import argparse
 import logging
+import os
 import sys
 
 logging.basicConfig(
@@ -22,7 +26,7 @@ logger = logging.getLogger("server")
 
 
 def _resolve_device(device_arg: str) -> str:
-    """Resolve 'auto' to 'cuda' or 'cpu'."""
+    """Resolve 'auto' to 'cuda', 'mps', or 'cpu'."""
     if device_arg != "auto":
         return device_arg
 
@@ -32,8 +36,11 @@ def _resolve_device(device_arg: str) -> str:
         if torch.cuda.is_available():
             logger.info("CUDA available — using GPU.")
             return "cuda"
+        elif torch.backends.mps.is_available():
+            logger.info("MPS available (Apple Silicon) — using MPS.")
+            return "mps"
         else:
-            logger.info("CUDA not available — falling back to CPU.")
+            logger.info("CUDA and MPS not available — falling back to CPU.")
             return "cpu"
     except ImportError:
         logger.warning("PyTorch not installed; defaulting to CPU.")
@@ -60,29 +67,55 @@ def main() -> None:
         "--device",
         type=str,
         default="auto",
-        choices=["auto", "cpu", "cuda"],
-        help="Inference device: auto|cpu|cuda (default: auto)",
+        choices=["auto", "cpu", "cuda", "mps"],
+        help="Inference device: auto|cpu|cuda|mps (default: auto)",
     )
     args = parser.parse_args()
 
-    device = _resolve_device(args.device)
-    logger.info(
-        "Starting server: port=%d model=%s device=%s",
-        args.port,
-        args.model,
-        device,
-    )
+    # Check for mock mode (for testing without models)
+    if os.environ.get("MOCK_MODE") == "1":
+        logger.info("MOCK_MODE enabled — using mock backends (no model loading)")
+        from backend.base import InferenceBackend
 
-    # Load backends
-    logger.info("Loading WhisperBackend (model=%s, device=%s) …", args.model, device)
-    from backend.whisper_backend import WhisperBackend  # type: ignore
+        class MockASR(InferenceBackend):
+            def transcribe(self, audio):
+                return ""  # Always return empty transcript for silence
+            
+            def translate(self, text, src_lang, tgt_lang):
+                # Not used for ASR backend, but required by ABC
+                return ""
 
-    asr = WhisperBackend(model_size=args.model, device=device)
+        class MockTranslation(InferenceBackend):
+            def translate(self, text, src_lang, tgt_lang):
+                if not text.strip():
+                    return ""
+                return "Hello"  # Mock translation
+            
+            def transcribe(self, audio):
+                # Not used for translation backend, but required by ABC
+                return ""
 
-    logger.info("Loading TranslationBackend …")
-    from backend.translation_backend import TranslationBackend  # type: ignore
+        asr = MockASR()
+        translation = MockTranslation()
+    else:
+        device = _resolve_device(args.device)
+        logger.info(
+            "Starting server: port=%d model=%s device=%s",
+            args.port,
+            args.model,
+            device,
+        )
 
-    translation = TranslationBackend(device=device)
+        # Load backends
+        logger.info("Loading WhisperBackend (model=%s, device=%s) …", args.model, device)
+        from backend.whisper_backend import WhisperBackend  # type: ignore
+
+        asr = WhisperBackend(model_size=args.model, device=device)
+
+        logger.info("Loading TranslationBackend …")
+        from backend.translation_backend import TranslationBackend  # type: ignore
+
+        translation = TranslationBackend(device=device)
 
     # Wire backends into the FastAPI app
     from app import app, configure_backends  # type: ignore

@@ -7,12 +7,14 @@ Protocol (see SRS §2.5):
   3. Server enters audio-receive loop: binary frames → VADProcessor
   4. On utterance detection: transcribe → translate → send translation JSON
   5. On inference error: send error JSON
+  6. Client can send mid-session config messages to update mode
 
 All model calls go through the InferenceBackend ABC — no direct model calls here.
 """
 import asyncio
 import json
 import logging
+import time
 import uuid
 from typing import Optional
 
@@ -41,6 +43,13 @@ def configure_backends(
     global _asr_backend, _translation_backend
     _asr_backend = asr
     _translation_backend = translation
+
+
+def _truncate_text(text: str, max_len: int = 50) -> str:
+    """Truncate text for logging purposes."""
+    if len(text) <= max_len:
+        return text
+    return text[:max_len - 3] + "..."
 
 
 @app.websocket("/ws")
@@ -102,7 +111,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     def on_utterance(utterance_audio):
         """Called by VADProcessor (sync) when an utterance is complete."""
         asyncio.run_coroutine_threadsafe(
-            _handle_utterance(utterance_audio, websocket, loop),
+            _handle_utterance(utterance_audio, websocket, loop, mode),
             loop,
         )
 
@@ -113,13 +122,30 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     )
 
     # ------------------------------------------------------------------
-    # Step 3: Audio receive loop
+    # Step 3: Audio receive loop with mid-session config handling
     # ------------------------------------------------------------------
     try:
         while True:
-            data = await websocket.receive_bytes()
-            # Run VAD in a thread pool to avoid blocking the event loop
-            await loop.run_in_executor(None, vad.process_chunk, data)
+            try:
+                data = await asyncio.wait_for(
+                    websocket.receive_bytes(), timeout=0.1
+                )
+                # Run VAD in a thread pool to avoid blocking the event loop
+                await loop.run_in_executor(None, vad.process_chunk, data)
+            except asyncio.TimeoutError:
+                # Check for text messages (config updates) periodically
+                try:
+                    raw_msg = await asyncio.wait_for(
+                        websocket.receive_text(), timeout=0.01
+                    )
+                    msg = json.loads(raw_msg)
+                    if msg.get("type") == "config":
+                        new_mode = str(msg.get("mode", mode))
+                        if new_mode != mode:
+                            mode = new_mode
+                            logger.info("Mode updated mid-session: mode=%s", mode)
+                except (asyncio.TimeoutError, json.JSONDecodeError):
+                    pass
     except WebSocketDisconnect:
         logger.info(
             "Client %s:%s disconnected.", client.host, client.port
@@ -134,13 +160,18 @@ async def _handle_utterance(
     utterance_audio,
     websocket: WebSocket,
     loop: asyncio.AbstractEventLoop,
+    mode: str,
 ) -> None:
     """Run ASR + translation for a detected utterance and send result."""
     if _asr_backend is None or _translation_backend is None:
         logger.error("Backends not configured; cannot process utterance.")
         return
 
+    utterance_id = str(uuid.uuid4())
+    total_start = time.perf_counter()
+
     # ASR
+    asr_start = time.perf_counter()
     try:
         source_text: str = await loop.run_in_executor(
             None, _asr_backend.transcribe, utterance_audio
@@ -154,11 +185,14 @@ async def _handle_utterance(
             pass
         return
 
+    asr_latency = time.perf_counter() - asr_start
+
     if not source_text:
         logger.debug("ASR returned empty string; skipping translation.")
         return
 
     # Translation
+    translate_start = time.perf_counter()
     try:
         translated_text: str = await loop.run_in_executor(
             None,
@@ -180,17 +214,28 @@ async def _handle_utterance(
             pass
         return
 
+    translate_latency = time.perf_counter() - translate_start
+    total_latency = time.perf_counter() - total_start
+
     # Send result
     payload = {
         "type": "translation",
         "source_text": source_text,
         "translated_text": translated_text,
-        "utterance_id": str(uuid.uuid4()),
+        "utterance_id": utterance_id,
     }
     try:
         await websocket.send_text(json.dumps(payload, ensure_ascii=False))
+        src_truncated = _truncate_text(source_text)
+        tgt_truncated = _truncate_text(translated_text)
         logger.info(
-            "Utterance processed: src=%r tgt=%r", source_text, translated_text
+            '[%s] asr=%.2fs translate=%.2fs total=%.2fs source="%s" translated="%s"',
+            utterance_id,
+            asr_latency,
+            translate_latency,
+            total_latency,
+            src_truncated,
+            tgt_truncated,
         )
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning("Failed to send translation result: %s", exc)

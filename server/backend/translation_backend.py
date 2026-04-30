@@ -42,6 +42,8 @@ class TranslationBackend(InferenceBackend):
         self._device = device
         if device == "cuda":
             self._model = self._model.to("cuda")
+        elif device == "mps":
+            self._model = self._model.to("mps")
 
         self._model.eval()
         logger.info("Translation model loaded (device=%s).", device)
@@ -76,6 +78,8 @@ class TranslationBackend(InferenceBackend):
             )
             if self._device == "cuda":
                 inputs = {k: v.to("cuda") for k, v in inputs.items()}
+            elif self._device == "mps":
+                inputs = {k: v.to("mps") for k, v in inputs.items()}
 
             forced_bos_token_id = self._tokenizer.convert_tokens_to_ids(tgt_lang)
             generated_tokens = self._model.generate(

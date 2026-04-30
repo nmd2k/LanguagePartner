@@ -9,11 +9,15 @@ import com.languagepartner.app.audio.AudioCapture
 import com.languagepartner.app.repository.SettingsRepository
 import com.languagepartner.app.websocket.ConnectionStatus
 import com.languagepartner.app.websocket.WebSocketClient
+import com.languagepartner.app.websocket.WebSocketEvent
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -49,6 +53,10 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
     // Utterance list — newest first
     private val _utterances = MutableStateFlow<List<Utterance>>(emptyList())
     val utterances: StateFlow<List<Utterance>> = _utterances.asStateFlow()
+
+    // Error events for UI display
+    private val _errorEvents = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    val errorEvents: SharedFlow<String> = _errorEvents.asSharedFlow()
 
     // Mode state
     private val _mode = MutableStateFlow(TranslationMode.SPEAK)
@@ -104,17 +112,24 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
 
     private fun collectTranslationResults() {
         viewModelScope.launch {
-            webSocketClient.translationResults.collect { result ->
-                val utterance = Utterance(
-                    id = result.utteranceId,
-                    sourceText = result.sourceText,
-                    translatedText = result.translatedText
-                )
-                // Prepend newest first
-                _utterances.value = listOf(utterance) + _utterances.value
-                // Speak in SPEAK mode
-                if (_mode.value == TranslationMode.SPEAK && ttsReady) {
-                    tts?.speak(result.translatedText, TextToSpeech.QUEUE_ADD, null, result.utteranceId)
+            webSocketClient.translationResults.collect { event ->
+                when (event) {
+                    is WebSocketEvent.Translation -> {
+                        val result = event.result
+                        val utterance = Utterance(
+                            id = result.utteranceId,
+                            sourceText = result.sourceText,
+                            translatedText = result.translatedText
+                        )
+                        _utterances.value = listOf(utterance) + _utterances.value
+                        if (_mode.value == TranslationMode.SPEAK && ttsReady) {
+                            tts?.speak(result.translatedText, TextToSpeech.QUEUE_ADD, null, result.utteranceId)
+                        }
+                    }
+                    is WebSocketEvent.Error -> {
+                        val errorMessage = formatErrorMessage(event.code, event.message)
+                        _errorEvents.tryEmit(errorMessage)
+                    }
                 }
             }
         }
@@ -203,6 +218,9 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
             TranslationMode.READ -> TranslationMode.SPEAK
         }
         Log.d(TAG, "Mode toggled to ${_mode.value}")
+        if (connectionStatus.value == ConnectionStatus.CONNECTED) {
+            webSocketClient.sendConfigMessage(_mode.value.toModeString())
+        }
     }
 
     override fun onCleared() {
@@ -217,5 +235,14 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
     private fun TranslationMode.toModeString() = when (this) {
         TranslationMode.SPEAK -> "speak"
         TranslationMode.READ -> "read"
+    }
+
+    private fun formatErrorMessage(code: String, message: String): String {
+        return when (code) {
+            "SERVER_UNREACHABLE" -> "Server unreachable: $message"
+            "ASR_FAIL" -> "Speech recognition failed: $message"
+            "MODEL_LOAD_FAIL" -> "Model loading failed: $message"
+            else -> "Error: $message"
+        }
     }
 }

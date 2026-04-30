@@ -26,16 +26,21 @@ class WhisperBackend(InferenceBackend):
 
         # faster-whisper uses "cpu" / "cuda" as device strings.
         # "auto" is handled by the CLI entrypoint before reaching here.
-        compute_type = "float16" if device == "cuda" else "int8"
+        # MPS is not supported by faster-whisper; fall back to CPU.
+        effective_device = device
+        if device == "mps":
+            logger.info("MPS not supported by faster-whisper; using CPU instead.")
+            effective_device = "cpu"
+        compute_type = "float16" if effective_device == "cuda" else "int8"
         logger.info(
             "Loading Whisper model '%s' on device '%s' (compute_type=%s) …",
             model_size,
-            device,
+            effective_device,
             compute_type,
         )
         self._model = WhisperModel(
             model_size,
-            device=device,
+            device=effective_device,
             compute_type=compute_type,
         )
         logger.info("Whisper model loaded.")
