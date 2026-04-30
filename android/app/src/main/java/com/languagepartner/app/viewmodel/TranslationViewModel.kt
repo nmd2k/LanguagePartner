@@ -93,7 +93,7 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
     private val _mode = MutableStateFlow(TranslationMode.SPEAK)
     val mode: StateFlow<TranslationMode> = _mode.asStateFlow()
 
-    private val _paused = MutableStateFlow(false)
+    private val _paused = MutableStateFlow(true)
     val paused: StateFlow<Boolean> = _paused.asStateFlow()
 
     private val _sourceLanguage = MutableStateFlow(Language.defaultSource())
@@ -437,16 +437,17 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
 
     fun swapLanguages() {
         val src = _sourceLanguage.value
-        _sourceLanguage.value = _targetLanguage.value
+        val tgt = _targetLanguage.value
+        _sourceLanguage.value = tgt
         _targetLanguage.value = src
+        // Single atomic edit prevents the DataStore feedback loop from resetting
+        // _targetLanguage mid-write (two separate edits emit intermediate state).
         viewModelScope.launch {
-            settingsRepository.saveSourceLanguage(_sourceLanguage.value.code)
-            settingsRepository.saveTargetLanguage(_targetLanguage.value.code)
+            settingsRepository.saveBothLanguages(tgt.code, src.code)
         }
         updateTtsLocale()
         sendConfigIfConnected()
     }
-
     private fun sendConfigIfConnected() {
         if (connectionStatus.value == ConnectionStatus.CONNECTED) {
             webSocketClient.sendConfigFull(

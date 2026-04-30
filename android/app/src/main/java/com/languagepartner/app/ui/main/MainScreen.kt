@@ -1,10 +1,17 @@
 package com.languagepartner.app.ui.main
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,7 +28,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -32,8 +38,10 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,7 +51,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,6 +62,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -70,7 +79,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MainScreen(
     viewModel: TranslationViewModel,
@@ -87,6 +96,7 @@ fun MainScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var textInput by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     val isListening = connectionStatus == ConnectionStatus.CONNECTED && !paused && mode == TranslationMode.SPEAK
 
@@ -98,26 +108,56 @@ fun MainScreen(
 
     LaunchedEffect(utterances.size) {
         if (utterances.isNotEmpty()) {
-            listState.animateScrollToItem(utterances.size - 1)
+            listState.scrollToItem(0)
         }
     }
 
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(text = stringResource(R.string.app_name))
-                },
-                actions = {
-                    IconButton(onClick = onNavigateToSettings) {
-                        Icon(
-                            imageVector = Icons.Default.Settings,
-                            contentDescription = stringResource(R.string.settings)
+            Column {
+                CenterAlignedTopAppBar(
+                    title = {
+                        Text(
+                            text = stringResource(R.string.app_name),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold
                         )
-                    }
+                    },
+                    actions = {
+                        IconButton(onClick = onNavigateToSettings) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = stringResource(R.string.settings)
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+                LanguageBar(
+                    sourceLanguage = sourceLanguage,
+                    targetLanguage = targetLanguage,
+                    onSourceClick = { onNavigateToLanguagePicker(true) },
+                    onTargetClick = { onNavigateToLanguagePicker(false) },
+                    onSwap = { viewModel.swapLanguages() }
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ModeToggle(
+                        currentMode = mode,
+                        onToggle = { viewModel.toggleMode() }
+                    )
+                    ConnectionStatusChip(status = connectionStatus)
                 }
-            )
+                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            }
         },
         bottomBar = {
             BottomBar(
@@ -127,6 +167,7 @@ fun MainScreen(
                     if (textInput.isNotBlank()) {
                         viewModel.sendTextInput(textInput)
                         textInput = ""
+                        keyboardController?.hide()
                     }
                 },
                 connectionStatus = connectionStatus,
@@ -136,67 +177,25 @@ fun MainScreen(
             )
         }
     ) { paddingValues ->
-        Column(
+        LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(paddingValues),
+            reverseLayout = true,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
         ) {
-            LanguageBar(
-                sourceLanguage = sourceLanguage,
-                targetLanguage = targetLanguage,
-                onSourceClick = { onNavigateToLanguagePicker(true) },
-                onTargetClick = { onNavigateToLanguagePicker(false) },
-                onSwap = { viewModel.swapLanguages() }
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                ModeToggle(
-                    currentMode = mode,
-                    onToggle = { viewModel.toggleMode() }
+            items(
+                items = utterances.asReversed(),
+                key = { it.id }
+            ) { utterance ->
+                ConversationBubble(
+                    utterance = utterance,
+                    modifier = Modifier.animateItemPlacement(
+                        animationSpec = spring(dampingRatio = 0.8f, stiffness = 400f)
+                    )
                 )
-                ConnectionStatusChip(status = connectionStatus)
-            }
-
-            if (isListening) {
-                WaveformVisualizer(isActive = true)
-
-                LiveListeningIndicator()
-
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
-                    items(utterances) { utterance ->
-                        ConversationBubble(utterance = utterance)
-                    }
-                }
-            } else {
-                WaveformVisualizer(isActive = false)
-
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(vertical = 8.dp)
-                ) {
-                    items(utterances) { utterance ->
-                        ConversationBubble(utterance = utterance)
-                    }
-                }
             }
         }
     }
@@ -217,20 +216,15 @@ private fun LanguageBar(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        LanguagePill(
-            language = sourceLanguage,
-            onClick = onSourceClick
-        )
+        LanguagePill(language = sourceLanguage, onClick = onSourceClick)
         IconButton(onClick = onSwap) {
             Icon(
                 imageVector = Icons.Default.SwapHoriz,
-                contentDescription = stringResource(R.string.swap_languages)
+                contentDescription = stringResource(R.string.swap_languages),
+                tint = MaterialTheme.colorScheme.primary
             )
         }
-        LanguagePill(
-            language = targetLanguage,
-            onClick = onTargetClick
-        )
+        LanguagePill(language = targetLanguage, onClick = onTargetClick)
     }
 }
 
@@ -241,14 +235,16 @@ private fun LanguagePill(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 2.dp
+        shape = RoundedCornerShape(24.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        tonalElevation = 0.dp
     ) {
         Text(
             text = language.name,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLarge
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onPrimaryContainer
         )
     }
 }
@@ -274,9 +270,7 @@ private fun ModeToggle(
 }
 
 @Composable
-private fun ConnectionStatusChip(
-    status: ConnectionStatus
-) {
+private fun ConnectionStatusChip(status: ConnectionStatus) {
     val color = when (status) {
         ConnectionStatus.CONNECTED -> Color(0xFF4CAF50)
         ConnectionStatus.CONNECTING -> Color(0xFFFFC107)
@@ -301,10 +295,10 @@ private fun ConnectionStatusChip(
             Icon(
                 imageVector = Icons.Default.Circle,
                 contentDescription = null,
-                modifier = Modifier.size(10.dp),
+                modifier = Modifier.size(8.dp),
                 tint = color
             )
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(5.dp))
             Text(
                 text = label,
                 color = color,
@@ -315,21 +309,21 @@ private fun ConnectionStatusChip(
 }
 
 @Composable
-private fun WaveformVisualizer(isActive: Boolean) {
-    val barCount = 12
-    val staticHeights = remember {
-        listOf(0.25f, 0.45f, 0.6f, 0.35f, 0.55f, 0.7f, 0.45f, 0.3f, 0.5f, 0.75f, 0.4f, 0.65f)
+private fun LiveListeningIndicator() {
+    val activeColor = Color(0xFF4CAF50)
+    val barHeights = remember {
+        listOf(0.4f, 0.7f, 0.9f, 0.5f, 0.3f, 0.8f, 1.0f, 0.6f, 0.4f, 0.7f, 0.5f, 0.8f, 0.9f, 0.4f, 0.6f, 0.5f, 0.3f, 0.7f, 0.45f, 0.75f)
     }
-
-    val transition = rememberInfiniteTransition(label = "waveform")
-    val animatedBarValues = List(barCount) { index ->
+    val barCount = barHeights.size
+    val transition = rememberInfiniteTransition(label = "listenWave")
+    val animatedBars = List(barCount) { index ->
         transition.animateFloat(
-            initialValue = 0.2f,
-            targetValue = 1f,
+            initialValue = barHeights[index] * 0.3f,
+            targetValue = barHeights[index],
             animationSpec = infiniteRepeatable(
                 animation = tween(
-                    durationMillis = 500,
-                    delayMillis = index * 80,
+                    durationMillis = 280,
+                    delayMillis = index * 40,
                     easing = FastOutSlowInEasing
                 )
             ),
@@ -340,96 +334,90 @@ private fun WaveformVisualizer(isActive: Boolean) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
     ) {
+        Icon(
+            imageVector = Icons.Default.Mic,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = activeColor
+        )
+        Spacer(modifier = Modifier.width(8.dp))
         repeat(barCount) { index ->
-            val heightRatio = if (isActive) animatedBarValues[index].value else staticHeights[index]
+            val heightRatio = animatedBars[index].value
             Box(
                 modifier = Modifier
-                    .width(4.dp)
-                    .height((28 * heightRatio).dp)
+                    .width(2.5.dp)
+                    .height((20 * heightRatio).dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(
-                        if (isActive) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.outlineVariant
-                    )
+                    .background(activeColor.copy(alpha = 0.85f))
             )
-        }
-    }
-}
-
-@Composable
-private fun LiveListeningIndicator() {
-    Row(
-        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = Color(0xFF4CAF50).copy(alpha = 0.12f)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Mic,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = Color(0xFF4CAF50)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = stringResource(R.string.listening),
-                    color = Color(0xFF4CAF50),
-                    style = MaterialTheme.typography.labelMedium
-                )
+            if (index < barCount - 1) {
+                Spacer(modifier = Modifier.width(2.dp))
             }
         }
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = stringResource(R.string.listening),
+            color = activeColor,
+            fontWeight = FontWeight.Medium,
+            style = MaterialTheme.typography.labelSmall
+        )
     }
 }
 
 @Composable
 private fun ConversationBubble(
-    utterance: Utterance
+    utterance: Utterance,
+    modifier: Modifier = Modifier
 ) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    val bubbleColor = MaterialTheme.colorScheme.surfaceVariant
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.Start
     ) {
         Surface(
             shape = RoundedCornerShape(
                 topStart = 4.dp,
-                topEnd = 16.dp,
-                bottomStart = 16.dp,
-                bottomEnd = 16.dp
+                topEnd = 20.dp,
+                bottomStart = 20.dp,
+                bottomEnd = 20.dp
             ),
-            color = bubbleColor
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 1.dp,
+            shadowElevation = 1.dp
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                 Text(
                     text = utterance.sourceText,
                     style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = utterance.translatedText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (utterance.translatedText.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    HorizontalDivider(
+                        thickness = 0.5.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = utterance.translatedText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.height(2.dp))
         Text(
             text = timeFormat.format(Date(utterance.timestamp)),
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.outline
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(start = 4.dp)
         )
     }
 }
@@ -446,42 +434,17 @@ private fun BottomBar(
 ) {
     Surface(
         tonalElevation = 8.dp,
-        shadowElevation = 8.dp
+        shadowElevation = 4.dp
     ) {
-        if (isListening) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+        Column {
+            AnimatedVisibility(
+                visible = isListening,
+                enter = slideInVertically { it } + fadeIn(tween(180)),
+                exit = slideOutVertically { it } + fadeOut(tween(180))
             ) {
-                Surface(
-                    onClick = onMicToggle,
-                    shape = RoundedCornerShape(28.dp),
-                    color = Color(0xFFF44336)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = stringResource(R.string.pause),
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = stringResource(R.string.stop_listening),
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
-                }
+                LiveListeningIndicator()
             }
-        } else {
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -494,15 +457,22 @@ private fun BottomBar(
                     modifier = Modifier.weight(1f),
                     placeholder = { Text(stringResource(R.string.type_to_translate)) },
                     singleLine = true,
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(28.dp),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { onSend() })
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                IconButton(onClick = onSend) {
+                IconButton(
+                    onClick = onSend,
+                    enabled = textInput.isNotBlank()
+                ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send"
+                        contentDescription = "Send",
+                        tint = if (textInput.isNotBlank())
+                            MaterialTheme.colorScheme.primary
+                        else
+                            MaterialTheme.colorScheme.outline
                     )
                 }
                 IconButton(
@@ -517,11 +487,13 @@ private fun BottomBar(
                         )
                         connectionStatus == ConnectionStatus.CONNECTED && paused -> Icon(
                             imageVector = Icons.Default.PlayArrow,
-                            contentDescription = stringResource(R.string.resume)
+                            contentDescription = stringResource(R.string.resume),
+                            tint = MaterialTheme.colorScheme.primary
                         )
                         else -> Icon(
                             imageVector = Icons.Default.Mic,
-                            contentDescription = stringResource(R.string.pause)
+                            contentDescription = stringResource(R.string.pause),
+                            tint = MaterialTheme.colorScheme.outline
                         )
                     }
                 }

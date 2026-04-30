@@ -48,4 +48,11 @@ class SettingsRepository(private val context: Context) {
             preferences[TARGET_LANGUAGE_KEY] = code
         }
     }
+
+    suspend fun saveBothLanguages(sourceCode: String, targetCode: String) {
+        context.dataStore.edit { preferences ->
+            preferences[SOURCE_LANGUAGE_KEY] = sourceCode
+            preferences[TARGET_LANGUAGE_KEY] = targetCode
+        }
+    }
 }

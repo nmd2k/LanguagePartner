@@ -72,6 +72,7 @@
 | PB-035 | Server model hosting dashboard — Running Models table + Model Browser catalog with Load/Unload, role filter, VRAM/latency stats | Feature | High | Open | 5 | Follows DashModels mockup; Feature #7 |
 | PB-036 | Swap NLLB-600M with Hy-MT1.5 via llama.cpp — integrate tencent/Hy-MT1.5-1.8B-1.25bit-GGUF for faster translation | Feature | High | Open | 5 | Feature #8 |
 | PB-037 | Server-side structured logging — emit log events via event bus for Android debug panel consumption | Feature | Medium | Open | 5 | Server→Client log streaming |
+| PB-038 | UX polish — instant scroll (no animation), keyboard dismiss on text send, waveform only in LiveListeningIndicator, bubble style match ScreenMain mockup | Bug | High | Done | 5 | Bugs #7-#9 |
 
 ---
 

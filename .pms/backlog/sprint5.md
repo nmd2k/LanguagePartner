@@ -28,6 +28,7 @@
 | S5-006 | PB-035 | Server model hosting dashboard | 2026-04-30 | /dashboard |
 | S5-007 | PB-036 | Hy-MT1.5 via llama.cpp | 2026-04-30 | import check |
 | S5-008 | PB-037 | Server log streaming | 2026-04-30 | assembleDebug, pytest |
+| S5-009 | PB-038 | UX polish — instant scroll, keyboard dismiss, waveform only when listening | 2026-04-30 | assembleDebug |
 
 ---
 
@@ -45,6 +46,7 @@
 | S5-006 | PB-035 | Server model hosting dashboard — Running Models table + Model Browser catalog with Load/Unload buttons, role filter (ASR/MT/TTS), VRAM/latency stats | High |
 | S5-007 | PB-036 | Swap NLLB-600M with Hy-MT1.5 via llama.cpp — download tencent/Hy-MT1.5-1.8B-1.25bit-GGUF; create LlamaCppBackend using llama-cpp-python; keep NLLB as fallback | High |
 | S5-008 | PB-037 | Server-side structured logging — emit log events via a shared event bus; stream logs to Android debug panel via WebSocket | Medium |
+| S5-009 | PB-038 | UX polish — replace animated scroll with instant scroll; dismiss keyboard after text send; remove idle waveform visualizer (show only when listening inside LiveListeningIndicator); bubble style to match ScreenMain mockup (speaker chip + clean corners) | High |
 
 ---
 
@@ -78,6 +80,7 @@
 
 ### Dependencies between items
 - S5-001 to S5-004 (bug fixes) are independent and can run in parallel
+- S5-009 (UX polish) is independent — focused on MainScreen.kt animation/keyboard/waveform fixes
 - S5-005 (debug screen) depends on S5-008 (server logs) for real data but can build UI first with mock data
 - S5-007 (Hy-MT1.5) requires model download first; keep NLLB as fallback to avoid blocking other items
 - S5-006 (model hosting dashboard) can run independently; S5-007 model will appear in the dashboard
