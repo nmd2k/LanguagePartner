@@ -1,13 +1,15 @@
 package com.languagepartner.app.ui.main
 
-import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,20 +17,27 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -37,56 +46,69 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.languagepartner.app.R
+import com.languagepartner.app.websocket.ConnectionStatus
+import com.languagepartner.app.viewmodel.Language
 import com.languagepartner.app.viewmodel.TranslationMode
 import com.languagepartner.app.viewmodel.TranslationViewModel
 import com.languagepartner.app.viewmodel.Utterance
-import com.languagepartner.app.websocket.ConnectionStatus
+import kotlinx.coroutines.flow.collectLatest
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
     viewModel: TranslationViewModel,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    onNavigateToLanguagePicker: (isSource: Boolean) -> Unit
 ) {
     val connectionStatus by viewModel.connectionStatus.collectAsStateWithLifecycle()
     val utterances by viewModel.utterances.collectAsStateWithLifecycle()
     val mode by viewModel.mode.collectAsStateWithLifecycle()
-    val serverAddress by viewModel.serverAddress.collectAsStateWithLifecycle()
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
+    val paused by viewModel.paused.collectAsStateWithLifecycle()
+    val sourceLanguage by viewModel.sourceLanguage.collectAsStateWithLifecycle()
+    val targetLanguage by viewModel.targetLanguage.collectAsStateWithLifecycle()
 
-    // Auto-connect when a server address is available
-    LaunchedEffect(serverAddress) {
-        if (serverAddress.isNotEmpty()) {
-            viewModel.connect(serverAddress)
+    val snackbarHostState = remember { SnackbarHostState() }
+    var textInput by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    val isListening = connectionStatus == ConnectionStatus.CONNECTED && !paused
+
+    LaunchedEffect(Unit) {
+        viewModel.errorEvents.collectLatest { error ->
+            snackbarHostState.showSnackbar(error)
         }
     }
 
-    // Show snackbar on error events
-    LaunchedEffect(Unit) {
-        viewModel.errorEvents.collect { errorMessage: String ->
-            snackbarHostState.showSnackbar(message = errorMessage)
+    LaunchedEffect(utterances.size) {
+        if (utterances.isNotEmpty()) {
+            listState.animateScrollToItem(utterances.size - 1)
         }
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(stringResource(R.string.app_name)) },
+                title = {
+                    Text(text = stringResource(R.string.app_name))
+                },
                 actions = {
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(
@@ -96,166 +118,399 @@ fun MainScreen(
                     }
                 }
             )
+        },
+        bottomBar = {
+            BottomBar(
+                textInput = textInput,
+                onTextInputChange = { textInput = it },
+                onSend = {
+                    if (textInput.isNotBlank()) {
+                        viewModel.sendTextInput(textInput)
+                        textInput = ""
+                    }
+                },
+                connectionStatus = connectionStatus,
+                paused = paused,
+                onMicToggle = { viewModel.togglePause() }
+            )
         }
     ) { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp)
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
+            LanguageBar(
+                sourceLanguage = sourceLanguage,
+                targetLanguage = targetLanguage,
+                onSourceClick = { onNavigateToLanguagePicker(true) },
+                onTargetClick = { onNavigateToLanguagePicker(false) },
+                onSwap = { viewModel.swapLanguages() }
+            )
 
-            // Status row: connection chip + mode toggle + mic indicator
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                ModeToggle(
+                    currentMode = mode,
+                    onToggle = { viewModel.toggleMode() }
+                )
                 ConnectionStatusChip(status = connectionStatus)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    ModeToggle(mode = mode, onToggle = { viewModel.toggleMode() })
-                    if (connectionStatus == ConnectionStatus.CONNECTED) {
-                        MicIndicator()
-                    }
+            }
+
+            WaveformVisualizer(isActive = isListening)
+
+            if (isListening) {
+                LiveListeningIndicator()
+            }
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 8.dp)
+            ) {
+                itemsIndexed(utterances) { index, utterance ->
+                    ConversationBubble(
+                        utterance = utterance,
+                        isLeftAligned = index % 2 == 0
+                    )
                 }
             }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Utterance list
-            UtteranceList(utterances = utterances)
         }
     }
 }
 
 @Composable
-private fun ConnectionStatusChip(status: ConnectionStatus) {
-    val (label, color) = when (status) {
-        ConnectionStatus.CONNECTED -> stringResource(R.string.status_connected) to Color(0xFF4CAF50)
-        ConnectionStatus.CONNECTING -> stringResource(R.string.status_connecting) to Color(0xFFFFC107)
-        ConnectionStatus.DISCONNECTED -> stringResource(R.string.status_disconnected) to Color(0xFF9E9E9E)
-        ConnectionStatus.ERROR -> stringResource(R.string.status_error) to Color(0xFFF44336)
+private fun LanguageBar(
+    sourceLanguage: Language,
+    targetLanguage: Language,
+    onSourceClick: () -> Unit,
+    onTargetClick: () -> Unit,
+    onSwap: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        LanguagePill(
+            language = sourceLanguage,
+            onClick = onSourceClick
+        )
+        IconButton(onClick = onSwap) {
+            Icon(
+                imageVector = Icons.Default.SwapHoriz,
+                contentDescription = stringResource(R.string.swap_languages)
+            )
+        }
+        LanguagePill(
+            language = targetLanguage,
+            onClick = onTargetClick
+        )
     }
+}
+
+@Composable
+private fun LanguagePill(
+    language: Language,
+    onClick: () -> Unit
+) {
     Surface(
-        shape = MaterialTheme.shapes.extraLarge,
-        color = color.copy(alpha = 0.15f),
-        modifier = Modifier.padding(vertical = 4.dp)
+        onClick = onClick,
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 2.dp
+    ) {
+        Text(
+            text = language.name,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge
+        )
+    }
+}
+
+@Composable
+private fun ModeToggle(
+    currentMode: TranslationMode,
+    onToggle: () -> Unit
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        FilterChip(
+            selected = currentMode == TranslationMode.SPEAK,
+            onClick = { if (currentMode != TranslationMode.SPEAK) onToggle() },
+            label = { Text(stringResource(R.string.mode_speak)) }
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        FilterChip(
+            selected = currentMode == TranslationMode.READ,
+            onClick = { if (currentMode != TranslationMode.READ) onToggle() },
+            label = { Text(stringResource(R.string.mode_read)) }
+        )
+    }
+}
+
+@Composable
+private fun ConnectionStatusChip(
+    status: ConnectionStatus
+) {
+    val color = when (status) {
+        ConnectionStatus.CONNECTED -> Color(0xFF4CAF50)
+        ConnectionStatus.CONNECTING -> Color(0xFFFFC107)
+        ConnectionStatus.DISCONNECTED -> Color(0xFF9E9E9E)
+        ConnectionStatus.ERROR -> Color(0xFFF44336)
+    }
+    val label = when (status) {
+        ConnectionStatus.CONNECTED -> stringResource(R.string.status_connected)
+        ConnectionStatus.CONNECTING -> stringResource(R.string.status_connecting)
+        ConnectionStatus.DISCONNECTED -> stringResource(R.string.status_disconnected)
+        ConnectionStatus.ERROR -> stringResource(R.string.status_error)
+    }
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = color.copy(alpha = 0.12f)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                shape = CircleShape,
-                color = color,
-                modifier = Modifier.size(8.dp)
-            ) {}
-            Spacer(modifier = Modifier.size(6.dp))
+            Icon(
+                imageVector = Icons.Default.Circle,
+                contentDescription = null,
+                modifier = Modifier.size(10.dp),
+                tint = color
+            )
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = color
+                color = color,
+                style = MaterialTheme.typography.labelSmall
             )
         }
     }
 }
 
 @Composable
-private fun ModeToggle(mode: TranslationMode, onToggle: () -> Unit) {
-    FilterChip(
-        selected = mode == TranslationMode.SPEAK,
-        onClick = onToggle,
-        label = {
-            Text(
-                if (mode == TranslationMode.SPEAK)
-                    stringResource(R.string.mode_speak)
-                else
-                    stringResource(R.string.mode_read)
-            )
-        },
-        modifier = Modifier.padding(end = 8.dp)
-    )
-}
+private fun WaveformVisualizer(isActive: Boolean) {
+    val barCount = 12
+    val staticHeights = remember {
+        listOf(0.25f, 0.45f, 0.6f, 0.35f, 0.55f, 0.7f, 0.45f, 0.3f, 0.5f, 0.75f, 0.4f, 0.65f)
+    }
 
-@Composable
-private fun MicIndicator() {
-    val infiniteTransition = rememberInfiniteTransition(label = "mic_pulse")
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.3f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "mic_scale"
-    )
-    Icon(
-        imageVector = Icons.Default.Mic,
-        contentDescription = "Microphone active",
-        tint = Color(0xFFF44336),
+    val transition = rememberInfiniteTransition(label = "waveform")
+    val animatedBarValues = List(barCount) { index ->
+        transition.animateFloat(
+            initialValue = 0.2f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = 500,
+                    delayMillis = index * 80,
+                    easing = FastOutSlowInEasing
+                )
+            ),
+            label = "bar_$index"
+        )
+    }
+
+    Row(
         modifier = Modifier
-            .size(28.dp)
-            .scale(scale)
-    )
+            .fillMaxWidth()
+            .padding(horizontal = 32.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(barCount) { index ->
+            val heightRatio = if (isActive) animatedBarValues[index].value else staticHeights[index]
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height((28 * heightRatio).dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(
+                        if (isActive) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outlineVariant
+                    )
+            )
+        }
+    }
 }
 
 @Composable
-private fun UtteranceList(utterances: List<Utterance>) {
-    val listState = rememberLazyListState()
-
-    // Auto-scroll to top when new utterance arrives (newest at top)
-    LaunchedEffect(utterances.size) {
-        if (utterances.isNotEmpty()) {
-            listState.animateScrollToItem(0)
-        }
-    }
-
-    if (utterances.isEmpty()) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
+private fun LiveListeningIndicator() {
+    Row(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFF4CAF50).copy(alpha = 0.12f)
         ) {
-            Text(
-                text = "Waiting for translations...",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-            )
-        }
-    } else {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(utterances, key = { it.id.ifEmpty { it.timestamp.toString() } }) { utterance ->
-                UtteranceCard(utterance = utterance)
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Mic,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = Color(0xFF4CAF50)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = stringResource(R.string.listening),
+                    color = Color(0xFF4CAF50),
+                    style = MaterialTheme.typography.labelMedium
+                )
             }
         }
     }
 }
 
 @Composable
-private fun UtteranceCard(utterance: Utterance) {
-    ElevatedCard(
+private fun ConversationBubble(
+    utterance: Utterance,
+    isLeftAligned: Boolean
+) {
+    val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val speakerLetter = if (isLeftAligned) "A" else "B"
+    val bubbleColor = if (isLeftAligned)
+        MaterialTheme.colorScheme.surfaceVariant
+    else
+        MaterialTheme.colorScheme.primaryContainer
+    val speakerColor = if (isLeftAligned)
+        MaterialTheme.colorScheme.primary
+    else
+        MaterialTheme.colorScheme.tertiary
+
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+        horizontalAlignment = if (isLeftAligned) Alignment.Start else Alignment.End
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            // ZH source text — small, muted
-            Text(
-                text = utterance.sourceText,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+        SpeakerChip(
+            letter = speakerLetter,
+            color = speakerColor
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Surface(
+            shape = RoundedCornerShape(
+                topStart = if (isLeftAligned) 4.dp else 16.dp,
+                topEnd = if (isLeftAligned) 16.dp else 4.dp,
+                bottomStart = 16.dp,
+                bottomEnd = 16.dp
+            ),
+            color = bubbleColor
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = utterance.sourceText,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = utterance.translatedText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = timeFormat.format(Date(utterance.timestamp)),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+    }
+}
+
+@Composable
+private fun SpeakerChip(
+    letter: String,
+    color: Color
+) {
+    Box(
+        modifier = Modifier
+            .size(24.dp)
+            .clip(CircleShape)
+            .background(color),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = letter,
+            color = Color.White,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun BottomBar(
+    textInput: String,
+    onTextInputChange: (String) -> Unit,
+    onSend: () -> Unit,
+    connectionStatus: ConnectionStatus,
+    paused: Boolean,
+    onMicToggle: () -> Unit
+) {
+    Surface(
+        tonalElevation = 8.dp,
+        shadowElevation = 8.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = textInput,
+                onValueChange = onTextInputChange,
+                modifier = Modifier.weight(1f),
+                placeholder = { Text(stringResource(R.string.type_to_translate)) },
+                singleLine = true,
+                shape = RoundedCornerShape(24.dp),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { onSend() })
             )
-            Spacer(modifier = Modifier.height(4.dp))
-            // EN translation — large, prominent
-            Text(
-                text = utterance.translatedText,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Spacer(modifier = Modifier.width(4.dp))
+            IconButton(onClick = onSend) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "Send"
+                )
+            }
+            IconButton(
+                onClick = onMicToggle,
+                enabled = connectionStatus != ConnectionStatus.DISCONNECTED
+            ) {
+                when {
+                    connectionStatus == ConnectionStatus.CONNECTED && !paused -> Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = stringResource(R.string.pause),
+                        tint = Color(0xFFF44336)
+                    )
+                    connectionStatus == ConnectionStatus.CONNECTED && paused -> Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = stringResource(R.string.resume)
+                    )
+                    else -> Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = stringResource(R.string.pause)
+                    )
+                }
+            }
         }
     }
 }

@@ -3,11 +3,16 @@
 Protocol (see SRS §2.5):
   1. Client connects to ws://<host>:<port>/ws
   2. Client sends a config JSON frame:
-       {"type": "config", "sample_rate": 16000, "mode": "speak|read"}
+       {"type": "config", "sample_rate": 16000, "mode": "speak|read",
+        "source_lang": "zh", "target_lang": "en"}
   3. Server enters audio-receive loop: binary frames → VADProcessor
   4. On utterance detection: transcribe → translate → send translation JSON
-  5. On inference error: send error JSON
-  6. Client can send mid-session config messages to update mode
+  5. Mid-session messages:
+       - config:  update mode, languages
+       - pause:   stop processing audio (VAD skips)
+       - resume:  resume processing audio
+       - text_input:  translate a text string and return result
+  6. On inference error: send error JSON
 
 All model calls go through the InferenceBackend ABC — no direct model calls here.
 """
@@ -21,25 +26,31 @@ from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from backend.base import InferenceBackend
+from backend.languages import (
+    Language,
+    SUPPORTED_LANGUAGES,
+    get_language,
+    whisper_to_nllb,
+)
 from vad import VADProcessor
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="LanguagePartner Server")
 
-# These are set by the CLI entrypoint (server.py) before uvicorn starts.
 _asr_backend: Optional[InferenceBackend] = None
 _translation_backend: Optional[InferenceBackend] = None
+
+# Default language pair
+_DEFAULT_SOURCE = "zh"
+_DEFAULT_TARGET = "en"
 
 
 def configure_backends(
     asr: InferenceBackend,
     translation: InferenceBackend,
 ) -> None:
-    """Inject loaded backends into the app module.
-
-    Called once from server.py after models are loaded.
-    """
+    """Inject loaded backends into the app module."""
     global _asr_backend, _translation_backend
     _asr_backend = asr
     _translation_backend = translation
@@ -52,6 +63,38 @@ def _truncate_text(text: str, max_len: int = 50) -> str:
     return text[:max_len - 3] + "..."
 
 
+async def _send_translation(
+    websocket: WebSocket,
+    source_text: str,
+    translated_text: str,
+    utterance_id: str,
+) -> None:
+    payload = {
+        "type": "translation",
+        "source_text": source_text,
+        "translated_text": translated_text,
+        "utterance_id": utterance_id,
+    }
+    try:
+        await websocket.send_text(json.dumps(payload, ensure_ascii=False))
+        logger.info(
+            '[%s] source="%s" translated="%s"',
+            utterance_id,
+            _truncate_text(source_text),
+            _truncate_text(translated_text),
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Failed to send translation result: %s", exc)
+
+
+async def _send_error(websocket: WebSocket, code: str, message: str) -> None:
+    payload = {"type": "error", "code": code, "message": message}
+    try:
+        await websocket.send_text(json.dumps(payload))
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("Failed to send error message: %s", exc)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     """WebSocket endpoint — accepts audio stream, returns translation JSON."""
@@ -59,9 +102,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     client = websocket.client
     logger.info("New WebSocket connection from %s:%s", client.host, client.port)
 
-    # ------------------------------------------------------------------
     # Step 1: Wait for config message
-    # ------------------------------------------------------------------
     try:
         raw_config = await websocket.receive_text()
         config = json.loads(raw_config)
@@ -77,41 +118,39 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     sample_rate: int = int(config.get("sample_rate", 16000))
     mode: str = str(config.get("mode", "read"))
+    source_lang_code: str = str(config.get("source_lang", _DEFAULT_SOURCE))
+    target_lang_code: str = str(config.get("target_lang", _DEFAULT_TARGET))
+    paused: bool = False
+
+    # Resolve language codes
+    source_lang: Optional[Language] = get_language(source_lang_code)
+    target_lang: Optional[Language] = get_language(target_lang_code)
+    if source_lang is None:
+        source_lang = SUPPORTED_LANGUAGES[0]  # fallback to EN
+    if target_lang is None:
+        target_lang = SUPPORTED_LANGUAGES[1]  # fallback to ZH
+
+    source_nllb = source_lang.nllb_code
+    target_nllb = target_lang.nllb_code
+    whisper_lang = source_lang.code
+
     logger.info(
-        "Client configured: sample_rate=%d, mode=%s", sample_rate, mode
+        "Client configured: sample_rate=%d, mode=%s, source=%s(%s), target=%s(%s)",
+        sample_rate, mode,
+        source_lang.name, whisper_lang,
+        target_lang.name, target_nllb,
     )
 
-    # ------------------------------------------------------------------
     # Step 2: Set up VAD with utterance callback
-    # ------------------------------------------------------------------
     loop = asyncio.get_event_loop()
-
-    async def send_translation(source_text: str, translated_text: str) -> None:
-        payload = {
-            "type": "translation",
-            "source_text": source_text,
-            "translated_text": translated_text,
-            "utterance_id": str(uuid.uuid4()),
-        }
-        try:
-            await websocket.send_text(json.dumps(payload, ensure_ascii=False))
-            logger.info(
-                "Sent translation: src=%r tgt=%r", source_text, translated_text
-            )
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.warning("Failed to send translation result: %s", exc)
-
-    async def send_error(code: str, message: str) -> None:
-        payload = {"type": "error", "code": code, "message": message}
-        try:
-            await websocket.send_text(json.dumps(payload))
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.warning("Failed to send error message: %s", exc)
 
     def on_utterance(utterance_audio):
         """Called by VADProcessor (sync) when an utterance is complete."""
         asyncio.run_coroutine_threadsafe(
-            _handle_utterance(utterance_audio, websocket, loop, mode),
+            _handle_utterance(
+                utterance_audio, websocket, loop, mode,
+                whisper_lang, source_nllb, target_nllb,
+            ),
             loop,
         )
 
@@ -121,40 +160,116 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         on_utterance=on_utterance,
     )
 
-    # ------------------------------------------------------------------
-    # Step 3: Audio receive loop with mid-session config handling
-    # ------------------------------------------------------------------
+    # Step 3: Audio receive loop with mid-session message handling
     try:
         while True:
             try:
-                data = await asyncio.wait_for(
-                    websocket.receive_bytes(), timeout=0.1
+                message = await asyncio.wait_for(
+                    websocket.receive(), timeout=0.1
                 )
-                # Run VAD in a thread pool to avoid blocking the event loop
-                await loop.run_in_executor(None, vad.process_chunk, data)
+                if "bytes" in message:
+                    if not paused:
+                        await loop.run_in_executor(None, vad.process_chunk, message["bytes"])
+                elif "text" in message:
+                    msg = json.loads(message["text"])
+                    msg_type = msg.get("type", "")
+
+                    if msg_type == "config":
+                        new_mode = str(msg.get("mode", mode))
+                        new_source = str(msg.get("source_lang", source_lang_code))
+                        new_target = str(msg.get("target_lang", target_lang_code))
+
+                        changed = False
+                        if new_mode != mode:
+                            mode = new_mode
+                            logger.info("Mode updated: mode=%s", mode)
+                            changed = True
+
+                        if new_source != source_lang_code:
+                            sl = get_language(new_source)
+                            if sl:
+                                source_lang_code = new_source
+                                source_lang = sl
+                                source_nllb = sl.nllb_code
+                                whisper_lang = sl.code
+                                logger.info("Source language updated: %s", sl.name)
+                                changed = True
+
+                        if new_target != target_lang_code:
+                            tl = get_language(new_target)
+                            if tl:
+                                target_lang_code = new_target
+                                target_lang = tl
+                                target_nllb = tl.nllb_code
+                                logger.info("Target language updated: %s", tl.name)
+                                changed = True
+
+                    elif msg_type == "pause":
+                        if not paused:
+                            paused = True
+                            logger.info("Translation paused.")
+
+                    elif msg_type == "resume":
+                        if paused:
+                            paused = False
+                            logger.info("Translation resumed.")
+
+                    elif msg_type == "text_input":
+                        text = str(msg.get("text", "")).strip()
+                        text_src = str(msg.get("source_lang", source_lang_code))
+                        text_tgt = str(msg.get("target_lang", target_lang_code))
+
+                        if text:
+                            sl = get_language(text_src)
+                            tl = get_language(text_tgt)
+                            src_nllb = sl.nllb_code if sl else source_nllb
+                            tgt_nllb = tl.nllb_code if tl else target_nllb
+
+                            translated = await _run_translate(
+                                text, src_nllb, tgt_nllb, loop
+                            )
+                            if translated:
+                                uid = str(uuid.uuid4())
+                                await _send_translation(
+                                    websocket, text, translated, uid
+                                )
+                                logger.info(
+                                    '[%s] text_input "%s" → "%s"',
+                                    uid,
+                                    _truncate_text(text),
+                                    _truncate_text(translated),
+                                )
+
             except asyncio.TimeoutError:
-                # Check for text messages (config updates) periodically
-                try:
-                    message = await asyncio.wait_for(
-                        websocket.receive(), timeout=0.01
-                    )
-                    if "text" in message:
-                        msg = json.loads(message["text"])
-                        if msg.get("type") == "config":
-                            new_mode = str(msg.get("mode", mode))
-                            if new_mode != mode:
-                                mode = new_mode
-                                logger.info("Mode updated mid-session: mode=%s", mode)
-                except (asyncio.TimeoutError, json.JSONDecodeError):
-                    pass
+                pass
+            except json.JSONDecodeError:
+                pass
     except WebSocketDisconnect:
-        logger.info(
-            "Client %s:%s disconnected.", client.host, client.port
-        )
+        logger.info("Client %s:%s disconnected.", client.host, client.port)
     except Exception as exc:  # pylint: disable=broad-except
         logger.exception("Unexpected error in WebSocket handler: %s", exc)
     finally:
         logger.info("WebSocket session ended for %s:%s.", client.host, client.port)
+
+
+async def _run_translate(
+    text: str,
+    src_nllb: str,
+    tgt_nllb: str,
+    loop: asyncio.AbstractEventLoop,
+) -> str:
+    """Run translation in thread pool and handle errors."""
+    try:
+        return await loop.run_in_executor(
+            None,
+            _translation_backend.translate,
+            text,
+            src_nllb,
+            tgt_nllb,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.exception("Translation failed: %s", exc)
+        return ""
 
 
 async def _handle_utterance(
@@ -162,6 +277,9 @@ async def _handle_utterance(
     websocket: WebSocket,
     loop: asyncio.AbstractEventLoop,
     mode: str,
+    whisper_lang: str,
+    source_nllb: str,
+    target_nllb: str,
 ) -> None:
     """Run ASR + translation for a detected utterance and send result."""
     if _asr_backend is None or _translation_backend is None:
@@ -175,15 +293,11 @@ async def _handle_utterance(
     asr_start = time.perf_counter()
     try:
         source_text: str = await loop.run_in_executor(
-            None, _asr_backend.transcribe, utterance_audio
+            None, _asr_backend.transcribe, utterance_audio, whisper_lang
         )
     except Exception as exc:  # pylint: disable=broad-except
         logger.exception("ASR failed: %s", exc)
-        error_payload = {"type": "error", "code": "ASR_FAILED", "message": str(exc)}
-        try:
-            await websocket.send_text(json.dumps(error_payload))
-        except Exception:  # pylint: disable=broad-except
-            pass
+        await _send_error(websocket, "ASR_FAILED", str(exc))
         return
 
     asr_latency = time.perf_counter() - asr_start
@@ -194,49 +308,36 @@ async def _handle_utterance(
 
     # Translation
     translate_start = time.perf_counter()
-    try:
-        translated_text: str = await loop.run_in_executor(
-            None,
-            _translation_backend.translate,
-            source_text,
-            "zho_Hans",
-            "eng_Latn",
-        )
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.exception("Translation failed: %s", exc)
-        error_payload = {
-            "type": "error",
-            "code": "TRANSLATION_FAILED",
-            "message": str(exc),
-        }
-        try:
-            await websocket.send_text(json.dumps(error_payload))
-        except Exception:  # pylint: disable=broad-except
-            pass
+    translated_text = await _run_translate(
+        source_text, source_nllb, target_nllb, loop
+    )
+
+    if not translated_text:
         return
 
     translate_latency = time.perf_counter() - translate_start
     total_latency = time.perf_counter() - total_start
 
-    # Send result
-    payload = {
-        "type": "translation",
-        "source_text": source_text,
-        "translated_text": translated_text,
-        "utterance_id": utterance_id,
-    }
     try:
-        await websocket.send_text(json.dumps(payload, ensure_ascii=False))
-        src_truncated = _truncate_text(source_text)
-        tgt_truncated = _truncate_text(translated_text)
+        await websocket.send_text(
+            json.dumps(
+                {
+                    "type": "translation",
+                    "source_text": source_text,
+                    "translated_text": translated_text,
+                    "utterance_id": utterance_id,
+                },
+                ensure_ascii=False,
+            )
+        )
         logger.info(
             '[%s] asr=%.2fs translate=%.2fs total=%.2fs source="%s" translated="%s"',
             utterance_id,
             asr_latency,
             translate_latency,
             total_latency,
-            src_truncated,
-            tgt_truncated,
+            _truncate_text(source_text),
+            _truncate_text(translated_text),
         )
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning("Failed to send translation result: %s", exc)

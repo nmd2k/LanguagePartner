@@ -1,12 +1,36 @@
 # LanguagePartner
 
-Real-time voice translation system: Android client streams microphone audio to a self-hosted Python server for speech recognition (Whisper) and translation (NLLB), returning results as JSON over WebSocket.
+Real-time voice and text translation system: Android client streams microphone audio or typed text to a self-hosted Python server for speech recognition (Whisper) and translation (NLLB), returning results as JSON over WebSocket. Supports language selection (EN, ZH, VI, SI) for both source and target, pause/resume recording control, and text input mode for translation without speaking.
 
-**MVP Features:**
-- Chinese (Simplified) → English translation
-- Speak mode (with TTS) and Read mode (text only)
+**Features:**
+- Bidirectional translation: source/target language selection (English, Chinese Simplified, Vietnamese, Sinhala)
+- Speak mode (with TTS), Read mode (text only), and Text Input mode
+- Pause/Resume button to control audio recording
 - Self-hosted server (no cloud dependencies)
 - Offline-capable after initial model download
+
+---
+
+## What's New in v1
+
+- **Language selection**: Choose both source and target languages from English, Chinese Simplified, Vietnamese, and Sinhala
+- **Pause/Resume**: Toggle recording on and off mid-conversation without disconnecting
+- **Text input translation**: Type text directly to get translations — no microphone needed
+- **Redesigned conversation UI**: Chat-bubble style interface with waveform visualizer during speech
+- **CC BY-NC 4.0 license**: Project now under Creative Commons Attribution-NonCommercial 4.0
+
+---
+
+## App Screens
+
+The Android app has four main screens:
+
+| Screen | Description |
+|--------|-------------|
+| **Main** | Conversation view with chat bubbles, waveform visualizer, mode toggle (Speak/Read/Text), and pause/resume button |
+| **Language Picker** | Dropdown selectors for source language and target language (EN, ZH, VI, SI) |
+| **Settings** | Server address input, connection status, and app preferences |
+| **Server Setup** | First-run screen for entering server IP and port before connecting |
 
 ---
 
@@ -54,17 +78,17 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # Start the server
-python server.py --port 8080 --model base --device auto
+python server.py --port 8765 --model base --device auto
 ```
 
 **First run:** Models will download automatically (~500MB total). This takes 5-10 minutes.
 
 **Expected output:**
 ```
-2026-04-30 12:00:00 INFO    server — Starting server: port=8080 model=base device=cpu
+2026-04-30 12:00:00 INFO    server — Starting server: port=8765 model=base device=cpu
 2026-04-30 12:00:00 INFO    server — Loading WhisperBackend (model=base, device=cpu) …
 2026-04-30 12:00:00 INFO    server — Loading TranslationBackend …
-Models loaded. Listening on ws://0.0.0.0:8080
+Models loaded. Listening on ws://0.0.0.0:8765
 ```
 
 **Find your server IP:**
@@ -124,20 +148,24 @@ Success
 
 2. **Enter server address:**
    - Format: `<server-ip>:<port>`
-   - Example: `192.168.1.100:8080`
+   - Example: `192.168.1.100:8765`
    - Tap **Save**
 
-3. **Verify connection:**
+3. **Choose languages:**
+   - Select source language and target language from the Language Picker
+   - Options: English, Chinese Simplified, Vietnamese, Sinhala
+
+4. **Verify connection:**
    - Status chip turns **green** = Connected
    - Status chip turns **red** = Connection failed
 
-4. **Grant microphone permission** when prompted
+5. **Grant microphone permission** when prompted
 
-5. **Test translation:**
+6. **Test translation:**
    - Ensure mode is set to **SPEAK**
-   - Say "你好" (nǐ hǎo)
+   - Say or type a phrase in your source language
    - Wait 2-5 seconds
-   - Verify result: `你好` → `Hello`
+   - Verify translated result in target language
 
 ---
 
@@ -147,7 +175,7 @@ Success
 python server.py [OPTIONS]
 
 Options:
-  --port PORT       WebSocket listen port (default: 8080)
+  --port PORT       WebSocket listen port (default: 8765)
   --model MODEL     Whisper model: tiny|base|small|medium|large (default: medium)
   --device DEVICE   Inference device: auto|cpu|cuda|mps (default: auto)
 ```
@@ -176,8 +204,17 @@ Options:
 
 | Mode | Behavior |
 |------|----------|
-| **SPEAK** | Shows translation + plays English TTS audio |
+| **SPEAK** | Shows translation + plays TTS audio in target language |
 | **READ** | Shows translation only (silent) |
+| **TEXT** | Type text for translation (no microphone needed) |
+
+### Controls
+
+| Control | Function |
+|---------|----------|
+| **Pause/Resume** | Toggles audio recording on and off; pauses data streaming to server |
+| **Language Picker** | Select source and target languages from EN, ZH, VI, SI |
+| **Mode Switch** | Cycle through Speak, Read, and Text input modes |
 
 ### Connection Status
 
@@ -193,6 +230,80 @@ Options:
 - **Server Address:** IP:port of your Python server
 - Validation: Must match pattern `\d{1,3}(\.\d{1,3}){3}:\d{2,5}`
 - Saved locally using Android Jetpack DataStore
+
+---
+
+## WebSocket Protocol
+
+The client and server communicate over WebSocket using JSON messages.
+
+### Configuration (client → server)
+
+Sent once after connection is established:
+
+```json
+{
+  "type": "config",
+  "source_lang": "zh",
+  "target_lang": "en",
+  "mode": "speak"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `source_lang` | string | Source language code: `en`, `zh`, `vi`, `si` |
+| `target_lang` | string | Target language code: `en`, `zh`, `vi`, `si` |
+| `mode` | string | Translation mode: `speak`, `read`, `text` |
+
+### Audio data (client → server)
+
+Binary audio frames sent as 16kHz PCM mono:
+
+```json
+{
+  "type": "audio",
+  "data": "<base64-encoded PCM bytes>"
+}
+```
+
+### Text input (client → server)
+
+Typed text for direct translation:
+
+```json
+{
+  "type": "text_input",
+  "text": "我需要一杯咖啡"
+}
+```
+
+### Recording control (client → server)
+
+```json
+{ "type": "pause" }
+{ "type": "resume" }
+```
+
+### Translation result (server → client)
+
+```json
+{
+  "type": "result",
+  "source_text": "你好",
+  "translated_text": "Hello",
+  "utterance_id": "abc123"
+}
+```
+
+### Error (server → client)
+
+```json
+{
+  "type": "error",
+  "message": "Unsupported language pair"
+}
+```
 
 ---
 
@@ -246,18 +357,21 @@ pytest server/tests/test_vad.py -v
 ├─────────────────────┤         ├─────────────────────────────────┤
 │  AudioRecord        │ ──────► │  WebSocket /ws                  │
 │  16kHz PCM mono     │         │                                 │
+│                     │         │  [config: source_lang,          │
+│  Text Input         │ ──────► │   target_lang, mode]           │
+│  (type to translate)│         │                                 │
 │                     │         │  silero-VAD                     │
-│                     │         │  (utterance detection)          │
-│                     │         │         │                       │
+│  Pause/Resume       │ ──────► │  (utterance detection)          │
+│  recording control  │         │         │                       │
 │                     │         │  Whisper ASR                    │
-│                     │         │  (Chinese → text)               │
+│                     │         │  (source → text)                │
 │                     │         │         │                       │
 │                     │         │  NLLB-200                       │
-│                     │         │  (translate to English)         │
+│                     │         │  (translate to target)          │
 │                     │         └────────────────┬────────────────┘
 │  Display result     │ ◄────────────────────────┘
-│  Android TTS        │    JSON: {type, source_text,
-│  (Speak mode only)  │          translated_text, utterance_id}
+│  (chat bubbles +    │    JSON: {type, source_text,
+│   waveform viz)     │          translated_text, utterance_id}
 └─────────────────────┘
 ```
 
@@ -281,13 +395,13 @@ pytest server/tests/test_vad.py -v
 
 ### Android TTS Language
 **Symptom:** TTS sounds unnatural or wrong accent.  
-**Cause:** Device TTS engine may not have English voice installed.  
-**Fix:** Settings → Accessibility → Text-to-speech → Install English voice.
+**Cause:** Device TTS engine may not have target language voice installed.  
+**Fix:** Settings → Accessibility → Text-to-speech → Install language voice.
 
 ### Connection Timeouts
 **Symptom:** App shows "Error" status intermittently.  
-**Cause:** Server on different subnet, firewall blocking port 8080.  
-**Fix:** Ensure same Wi-Fi network, allow port 8080 in firewall.
+**Cause:** Server on different subnet, firewall blocking port 8765.  
+**Fix:** Ensure same Wi-Fi network, allow port 8765 in firewall.
 
 ### ADB Not Recognizing Device
 **Symptom:** `adb devices` shows "unauthorized" or empty.  
@@ -309,8 +423,8 @@ python --version  # Must be 3.10+
 pip install -r requirements.txt
 
 # Check port is free
-lsof -i :8080  # macOS/Linux
-netstat -ano | findstr :8080  # Windows
+lsof -i :8765  # macOS/Linux
+netstat -ano | findstr :8765  # Windows
 ```
 
 ### APK build fails
@@ -331,7 +445,7 @@ ls $ANDROID_HOME/platforms
 
 ### TTS not playing
 1. Check device volume
-2. Ensure mode is SPEAK (not READ)
+2. Ensure mode is SPEAK (not READ or TEXT)
 3. Check Android TTS engine settings
 
 ---
@@ -386,8 +500,9 @@ LanguagePartner/
 
 ## License
 
-**Personal use only.**
+This project is licensed under **CC BY-NC 4.0** (Creative Commons Attribution-NonCommercial 4.0 International). You are free to share and adapt the material for non-commercial purposes with appropriate attribution.
 
+Third-party component licenses:
 - Whisper: MIT license
 - silero-VAD: Apache 2.0
 - NLLB-200: CC-BY-NC-4.0 (non-commercial)
@@ -398,6 +513,7 @@ LanguagePartner/
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.0.0 | 2026-04-30 | Language selection (EN/ZH/VI/SI), pause/resume, text input, redesigned chat UI |
 | 0.1.0 | 2026-04-30 | MVP: Chinese→English, Speak/Read modes, self-hosted server |
 
 ---

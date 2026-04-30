@@ -13,33 +13,33 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.languagepartner.app.repository.SettingsRepository
+import androidx.navigation.navArgument
 import com.languagepartner.app.ui.main.MainScreen
+import com.languagepartner.app.ui.picker.LanguagePickerScreen
+import com.languagepartner.app.ui.settings.ServerSetupScreen
 import com.languagepartner.app.ui.settings.SettingsScreen
 import com.languagepartner.app.ui.theme.LanguagePartnerTheme
+import com.languagepartner.app.viewmodel.Language
 import com.languagepartner.app.viewmodel.TranslationViewModel
 
 class MainActivity : ComponentActivity() {
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        // Permission result handled; AudioCapture checks state at record time
+    ) { _ ->
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Request RECORD_AUDIO on first launch
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             != PackageManager.PERMISSION_GRANTED) {
             requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
-
-        val settingsRepository = SettingsRepository(applicationContext)
 
         setContent {
             LanguagePartnerTheme {
@@ -47,7 +47,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    LanguagePartnerApp(settingsRepository = settingsRepository)
+                    LanguagePartnerApp()
                 }
             }
         }
@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun LanguagePartnerApp(settingsRepository: SettingsRepository) {
+fun LanguagePartnerApp() {
     val navController = rememberNavController()
     val translationViewModel: TranslationViewModel = viewModel()
 
@@ -63,12 +63,60 @@ fun LanguagePartnerApp(settingsRepository: SettingsRepository) {
         composable("main") {
             MainScreen(
                 viewModel = translationViewModel,
-                onNavigateToSettings = { navController.navigate("settings") }
+                onNavigateToSettings = { navController.navigate("settings") },
+                onNavigateToLanguagePicker = { isSource ->
+                    navController.navigate("language_picker/${isSource}")
+                }
             )
         }
         composable("settings") {
             SettingsScreen(
-                settingsRepository = settingsRepository,
+                sourceLanguage = translationViewModel.sourceLanguage.value,
+                targetLanguage = translationViewModel.targetLanguage.value,
+                serverAddress = translationViewModel.serverAddress.value,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToServerSetup = { navController.navigate("server_setup") },
+                onNavigateToLanguagePicker = { isSource ->
+                    navController.navigate("language_picker/${isSource}")
+                }
+            )
+        }
+        composable("server_setup") {
+            ServerSetupScreen(
+                initialAddress = translationViewModel.serverAddress.value,
+                onSave = { address ->
+                    translationViewModel.saveServerAddress(address)
+                    navController.popBackStack()
+                },
+                onNavigateBack = { navController.popBackStack() },
+                onTestConnection = { address, onResult ->
+                    translationViewModel.testConnection(address, onResult)
+                }
+            )
+        }
+        composable(
+            "language_picker/{isSource}",
+            arguments = listOf(navArgument("isSource") { type = NavType.BoolType })
+        ) { backStackEntry ->
+            val isSource = backStackEntry.arguments?.getBoolean("isSource") ?: true
+            val languages = Language.SUPPORTED
+            val selectedCode = if (isSource)
+                translationViewModel.sourceLanguage.value.code
+            else
+                translationViewModel.targetLanguage.value.code
+
+            LanguagePickerScreen(
+                title = if (isSource) "Source Language" else "Target Language",
+                languages = languages,
+                selectedCode = selectedCode,
+                onLanguageSelected = { code ->
+                    if (isSource) {
+                        translationViewModel.setSourceLanguage(code)
+                    } else {
+                        translationViewModel.setTargetLanguage(code)
+                    }
+                    navController.popBackStack()
+                },
                 onNavigateBack = { navController.popBackStack() }
             )
         }

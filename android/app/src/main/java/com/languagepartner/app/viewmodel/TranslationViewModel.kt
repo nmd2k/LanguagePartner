@@ -36,44 +36,65 @@ data class Utterance(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+data class Language(
+    val code: String,
+    val name: String,
+    val nativeName: String
+) {
+    companion object {
+        val SUPPORTED = listOf(
+            Language("en", "English", "English"),
+            Language("zh", "Chinese (Simplified)", "普通话"),
+            Language("vi", "Vietnamese", "Tiếng Việt"),
+            Language("si", "Sinhala", "සිංහල")
+        )
+
+        fun fromCode(code: String): Language =
+            SUPPORTED.find { it.code == code } ?: SUPPORTED[0]
+
+        fun defaultSource() = SUPPORTED[0]
+        fun defaultTarget() = SUPPORTED[1]
+    }
+}
+
 class TranslationViewModel(application: Application) : AndroidViewModel(application) {
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.SECONDS) // no timeout for streaming
+        .readTimeout(0, TimeUnit.SECONDS)
         .writeTimeout(10, TimeUnit.SECONDS)
         .build()
 
     private val webSocketClient = WebSocketClient(okHttpClient)
     private val settingsRepository = SettingsRepository(application)
 
-    // Connection status delegated from WebSocketClient
     val connectionStatus: StateFlow<ConnectionStatus> = webSocketClient.connectionStatus
 
-    // Utterance list — newest first
     private val _utterances = MutableStateFlow<List<Utterance>>(emptyList())
     val utterances: StateFlow<List<Utterance>> = _utterances.asStateFlow()
 
-    // Error events for UI display
     private val _errorEvents = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val errorEvents: SharedFlow<String> = _errorEvents.asSharedFlow()
 
-    // Mode state
     private val _mode = MutableStateFlow(TranslationMode.SPEAK)
     val mode: StateFlow<TranslationMode> = _mode.asStateFlow()
 
-    // Server address from DataStore
+    private val _paused = MutableStateFlow(false)
+    val paused: StateFlow<Boolean> = _paused.asStateFlow()
+
+    private val _sourceLanguage = MutableStateFlow(Language.defaultSource())
+    val sourceLanguage: StateFlow<Language> = _sourceLanguage.asStateFlow()
+
+    private val _targetLanguage = MutableStateFlow(Language.defaultTarget())
+    val targetLanguage: StateFlow<Language> = _targetLanguage.asStateFlow()
+
     val serverAddress: StateFlow<String> = settingsRepository.serverAddress
         .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
-    // Audio capture
     private var audioCapture: AudioCapture? = null
-
-    // TTS
     private var tts: TextToSpeech? = null
     private var ttsReady = false
 
-    // Reconnect state
     private var retryJob: Job? = null
     private val backoffMs = listOf(1000L, 2000L, 4000L, 8000L, 30000L)
     private var userDisconnected = false
@@ -82,6 +103,24 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
         initTts()
         collectTranslationResults()
         watchConnectionStatus()
+        loadLanguagePrefs()
+    }
+
+    private fun loadLanguagePrefs() {
+        viewModelScope.launch {
+            settingsRepository.sourceLanguage.collect { code ->
+                if (code.isNotEmpty()) {
+                    _sourceLanguage.value = Language.fromCode(code)
+                }
+            }
+        }
+        viewModelScope.launch {
+            settingsRepository.targetLanguage.collect { code ->
+                if (code.isNotEmpty()) {
+                    _targetLanguage.value = Language.fromCode(code)
+                }
+            }
+        }
     }
 
     private fun initTts() {
@@ -91,7 +130,7 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
                 if (result == TextToSpeech.LANG_MISSING_DATA ||
                     result == TextToSpeech.LANG_NOT_SUPPORTED
                 ) {
-                    Log.e(TAG, "TTS: English language not supported — disabling Speak mode")
+                    Log.e(TAG, "TTS: English language not supported")
                     ttsReady = false
                     if (_mode.value == TranslationMode.SPEAK) {
                         _mode.value = TranslationMode.READ
@@ -101,7 +140,7 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
                     Log.d(TAG, "TTS initialized with English locale")
                 }
             } else {
-                Log.e(TAG, "TTS init failed with status: $status — disabling Speak mode")
+                Log.e(TAG, "TTS init failed: $status")
                 ttsReady = false
                 if (_mode.value == TranslationMode.SPEAK) {
                     _mode.value = TranslationMode.READ
@@ -123,7 +162,12 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
                         )
                         _utterances.value = listOf(utterance) + _utterances.value
                         if (_mode.value == TranslationMode.SPEAK && ttsReady) {
-                            tts?.speak(result.translatedText, TextToSpeech.QUEUE_ADD, null, result.utteranceId)
+                            tts?.speak(
+                                result.translatedText,
+                                TextToSpeech.QUEUE_ADD,
+                                null,
+                                result.utteranceId
+                            )
                         }
                     }
                     is WebSocketEvent.Error -> {
@@ -143,7 +187,9 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
                         Log.d(TAG, "Connected — starting audio capture")
                         retryJob?.cancel()
                         retryJob = null
-                        startAudioCapture()
+                        if (!_paused.value) {
+                            startAudioCapture()
+                        }
                     }
                     ConnectionStatus.DISCONNECTED, ConnectionStatus.ERROR -> {
                         Log.d(TAG, "Disconnected/Error — stopping audio capture")
@@ -152,9 +198,7 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
                             scheduleReconnect()
                         }
                     }
-                    ConnectionStatus.CONNECTING -> {
-                        // No action needed
-                    }
+                    ConnectionStatus.CONNECTING -> {}
                 }
             }
         }
@@ -175,8 +219,12 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
                 delay(delayMs)
                 if (userDisconnected) break
                 Log.d(TAG, "Attempting reconnect to $address")
-                webSocketClient.connect(address, _mode.value.toModeString())
-                // Wait for status change
+                webSocketClient.connect(
+                    address,
+                    _mode.value.toModeString(),
+                    _sourceLanguage.value.code,
+                    _targetLanguage.value.code
+                )
                 delay(5000L)
                 if (connectionStatus.value == ConnectionStatus.CONNECTED) break
                 attempt++
@@ -201,7 +249,56 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
         userDisconnected = false
         retryJob?.cancel()
         retryJob = null
-        webSocketClient.connect(address, _mode.value.toModeString())
+        webSocketClient.connect(
+            address,
+            _mode.value.toModeString(),
+            _sourceLanguage.value.code,
+            _targetLanguage.value.code
+        )
+    }
+
+    fun saveServerAddress(address: String) {
+        viewModelScope.launch { settingsRepository.saveServerAddress(address) }
+        connect(address)
+    }
+
+    fun testConnection(address: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val testClient = WebSocketClient(
+                OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(5, TimeUnit.SECONDS)
+                    .build()
+            )
+            var completed = false
+            val job = launch {
+                testClient.connectionStatus.collect { status ->
+                    if (!completed) {
+                        when (status) {
+                            ConnectionStatus.CONNECTED -> {
+                                completed = true
+                                onResult(true)
+                                testClient.disconnect()
+                            }
+                            ConnectionStatus.ERROR -> {
+                                completed = true
+                                onResult(false)
+                                testClient.disconnect()
+                            }
+                            else -> {}
+                        }
+                    }
+                }
+            }
+            testClient.connect(address, "read", _sourceLanguage.value.code, _targetLanguage.value.code)
+            delay(6000)
+            if (!completed) {
+                completed = true
+                onResult(false)
+                testClient.disconnect()
+                job.cancel()
+            }
+        }
     }
 
     fun disconnect() {
@@ -219,7 +316,80 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
         }
         Log.d(TAG, "Mode toggled to ${_mode.value}")
         if (connectionStatus.value == ConnectionStatus.CONNECTED) {
-            webSocketClient.sendConfigMessage(_mode.value.toModeString())
+            webSocketClient.sendConfigFull(
+                _mode.value.toModeString(),
+                _sourceLanguage.value.code,
+                _targetLanguage.value.code
+            )
+        }
+    }
+
+    fun togglePause() {
+        _paused.value = !_paused.value
+        if (_paused.value) {
+            stopAudioCapture()
+            if (connectionStatus.value == ConnectionStatus.CONNECTED) {
+                webSocketClient.sendPause()
+            }
+            Log.d(TAG, "Translation paused")
+        } else {
+            if (connectionStatus.value == ConnectionStatus.CONNECTED) {
+                webSocketClient.sendResume()
+                startAudioCapture()
+            }
+            Log.d(TAG, "Translation resumed")
+        }
+    }
+
+    fun sendTextInput(text: String) {
+        if (text.isBlank()) return
+        webSocketClient.sendTextInput(
+            text,
+            _sourceLanguage.value.code,
+            _targetLanguage.value.code
+        )
+    }
+
+    fun setSourceLanguage(code: String) {
+        val lang = Language.fromCode(code)
+        _sourceLanguage.value = lang
+        viewModelScope.launch { settingsRepository.saveSourceLanguage(code) }
+        if (connectionStatus.value == ConnectionStatus.CONNECTED) {
+            webSocketClient.sendConfigFull(
+                _mode.value.toModeString(),
+                _sourceLanguage.value.code,
+                _targetLanguage.value.code
+            )
+        }
+    }
+
+    fun setTargetLanguage(code: String) {
+        val lang = Language.fromCode(code)
+        _targetLanguage.value = lang
+        viewModelScope.launch { settingsRepository.saveTargetLanguage(code) }
+        if (connectionStatus.value == ConnectionStatus.CONNECTED) {
+            webSocketClient.sendConfigFull(
+                _mode.value.toModeString(),
+                _sourceLanguage.value.code,
+                _targetLanguage.value.code
+            )
+        }
+    }
+
+    fun swapLanguages() {
+        val src = _sourceLanguage.value
+        _sourceLanguage.value = _targetLanguage.value
+        _targetLanguage.value = src
+        viewModelScope.launch {
+            settingsRepository.saveSourceLanguage(_sourceLanguage.value.code)
+            settingsRepository.saveTargetLanguage(_targetLanguage.value.code)
+        }
+        if (connectionStatus.value == ConnectionStatus.CONNECTED) {
+            webSocketClient.sendConfigFull(
+                _mode.value.toModeString(),
+                _sourceLanguage.value.code,
+                _targetLanguage.value.code
+            )
         }
     }
 
@@ -240,7 +410,7 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
     private fun formatErrorMessage(code: String, message: String): String {
         return when (code) {
             "SERVER_UNREACHABLE" -> "Server unreachable: $message"
-            "ASR_FAIL" -> "Speech recognition failed: $message"
+            "ASR_FAILED" -> "Speech recognition failed: $message"
             "MODEL_LOAD_FAIL" -> "Model loading failed: $message"
             else -> "Error: $message"
         }

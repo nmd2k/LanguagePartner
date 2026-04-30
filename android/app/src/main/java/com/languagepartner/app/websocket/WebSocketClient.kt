@@ -2,7 +2,6 @@ package com.languagepartner.app.websocket
 
 import android.util.Log
 import com.google.gson.Gson
-import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,19 +48,28 @@ class WebSocketClient(private val okHttpClient: OkHttpClient) {
     private val gson = Gson()
     private var webSocket: WebSocket? = null
     private var currentMode: String = "speak"
+    private var currentSourceLang: String = "en"
+    private var currentTargetLang: String = "zh"
 
-    fun connect(address: String, mode: String = "speak") {
+    fun connect(
+        address: String,
+        mode: String = "speak",
+        sourceLang: String = "en",
+        targetLang: String = "zh"
+    ) {
         if (_connectionStatus.value == ConnectionStatus.CONNECTING ||
             _connectionStatus.value == ConnectionStatus.CONNECTED) {
             Log.d(TAG, "Already connecting or connected, skipping")
             return
         }
         currentMode = mode
+        currentSourceLang = sourceLang
+        currentTargetLang = targetLang
         _connectionStatus.value = ConnectionStatus.CONNECTING
         val url = "ws://$address/ws"
-        Log.d(TAG, "Connecting to $url")
+        Log.d(TAG, "Connecting to $url with source=$sourceLang target=$targetLang")
         val request = Request.Builder().url(url).build()
-        webSocket = okHttpClient.newWebSocket(request, createListener(mode))
+        webSocket = okHttpClient.newWebSocket(request, createListener(mode, sourceLang, targetLang))
     }
 
     fun sendAudioChunk(pcmBytes: ByteArray) {
@@ -71,17 +79,56 @@ class WebSocketClient(private val okHttpClient: OkHttpClient) {
     }
 
     fun sendConfigMessage(mode: String) {
+        sendConfigFull(mode, currentSourceLang, currentTargetLang)
+    }
+
+    fun sendConfigFull(mode: String, sourceLang: String, targetLang: String) {
         val ws = webSocket ?: return
         if (_connectionStatus.value != ConnectionStatus.CONNECTED) return
+        currentSourceLang = sourceLang
+        currentTargetLang = targetLang
         val configJson = gson.toJson(
             mapOf(
                 "type" to "config",
                 "sample_rate" to 16000,
-                "mode" to mode
+                "mode" to mode,
+                "source_lang" to sourceLang,
+                "target_lang" to targetLang
             )
         )
         ws.send(configJson)
         Log.d(TAG, "Sent config: $configJson")
+    }
+
+    fun sendPause() {
+        val ws = webSocket ?: return
+        if (_connectionStatus.value != ConnectionStatus.CONNECTED) return
+        val msg = gson.toJson(mapOf("type" to "pause"))
+        ws.send(msg)
+        Log.d(TAG, "Sent pause")
+    }
+
+    fun sendResume() {
+        val ws = webSocket ?: return
+        if (_connectionStatus.value != ConnectionStatus.CONNECTED) return
+        val msg = gson.toJson(mapOf("type" to "resume"))
+        ws.send(msg)
+        Log.d(TAG, "Sent resume")
+    }
+
+    fun sendTextInput(text: String, sourceLang: String, targetLang: String) {
+        val ws = webSocket ?: return
+        if (_connectionStatus.value != ConnectionStatus.CONNECTED) return
+        val msg = gson.toJson(
+            mapOf(
+                "type" to "text_input",
+                "text" to text,
+                "source_lang" to sourceLang,
+                "target_lang" to targetLang
+            )
+        )
+        ws.send(msg)
+        Log.d(TAG, "Sent text_input: $text")
     }
 
     fun disconnect() {
@@ -90,7 +137,11 @@ class WebSocketClient(private val okHttpClient: OkHttpClient) {
         _connectionStatus.value = ConnectionStatus.DISCONNECTED
     }
 
-    private fun createListener(mode: String): WebSocketListener {
+    private fun createListener(
+        mode: String,
+        sourceLang: String,
+        targetLang: String
+    ): WebSocketListener {
         return object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d(TAG, "WebSocket opened")
@@ -99,7 +150,9 @@ class WebSocketClient(private val okHttpClient: OkHttpClient) {
                     mapOf(
                         "type" to "config",
                         "sample_rate" to 16000,
-                        "mode" to mode
+                        "mode" to mode,
+                        "source_lang" to sourceLang,
+                        "target_lang" to targetLang
                     )
                 )
                 webSocket.send(configJson)

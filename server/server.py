@@ -78,11 +78,10 @@ def main() -> None:
         from backend.base import InferenceBackend
 
         class MockASR(InferenceBackend):
-            def transcribe(self, audio):
+            def transcribe(self, audio, language=None):
                 return ""  # Always return empty transcript for silence
-            
+
             def translate(self, text, src_lang, tgt_lang):
-                # Not used for ASR backend, but required by ABC
                 return ""
 
         class MockTranslation(InferenceBackend):
@@ -90,9 +89,8 @@ def main() -> None:
                 if not text.strip():
                     return ""
                 return "Hello"  # Mock translation
-            
-            def transcribe(self, audio):
-                # Not used for translation backend, but required by ABC
+
+            def transcribe(self, audio, language=None):
                 return ""
 
         asr = MockASR()

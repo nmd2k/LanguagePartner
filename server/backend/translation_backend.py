@@ -1,7 +1,7 @@
 """TranslationBackend — HuggingFace NLLB-200-distilled-600M NMT backend.
 
-Uses ``facebook/nllb-200-distilled-600M`` for ZH-CN → EN translation.
-NLLB language codes differ from ISO 639: use ``"zho_Hans"`` / ``"eng_Latn"``.
+Uses ``facebook/nllb-200-distilled-600M`` for multilingual translation.
+NLLB language codes use FLORES-200 format (e.g. ``zho_Hans``, ``eng_Latn``).
 """
 import logging
 
@@ -11,10 +11,7 @@ from .base import InferenceBackend
 
 logger = logging.getLogger(__name__)
 
-# Default NLLB model identifier
 _DEFAULT_MODEL = "facebook/nllb-200-distilled-600M"
-
-# Maximum tokens to generate per translation
 _MAX_NEW_TOKENS = 256
 
 
@@ -23,7 +20,7 @@ class TranslationBackend(InferenceBackend):
 
     Args:
         model_name: HuggingFace model identifier (default: NLLB-600M).
-        device:     ``"cpu"`` or ``"cuda"`` (default: ``"cpu"``).
+        device:     ``"cpu"``, ``"cuda"``, or ``"mps"`` (default: ``"cpu"``).
     """
 
     def __init__(
@@ -51,15 +48,15 @@ class TranslationBackend(InferenceBackend):
     def translate(
         self,
         text: str,
-        src_lang: str = "zho_Hans",
-        tgt_lang: str = "eng_Latn",
+        src_lang: str,
+        tgt_lang: str,
     ) -> str:
         """Translate *text* from *src_lang* to *tgt_lang*.
 
         Args:
             text:     Source text.
-            src_lang: NLLB source language code (default: ``"zho_Hans"``).
-            tgt_lang: NLLB target language code (default: ``"eng_Latn"``).
+            src_lang: NLLB source language code (e.g. ``"zho_Hans"``).
+            tgt_lang: NLLB target language code (e.g. ``"eng_Latn"``).
 
         Returns:
             Translated string, or ``""`` if *text* is empty.
@@ -98,11 +95,12 @@ class TranslationBackend(InferenceBackend):
             logger.exception("Translation inference error: %s", exc)
             return ""
 
-    def transcribe(self, audio: np.ndarray) -> str:
-        """Not implemented — transcription is delegated to WhisperBackend.
-
-        This method exists only to satisfy the ABC contract.
-        """
+    def transcribe(
+        self,
+        audio: np.ndarray,
+        language: str = None,
+    ) -> str:
+        """Not implemented — transcription is delegated to WhisperBackend."""
         raise NotImplementedError(
             "TranslationBackend does not support ASR. "
             "Use WhisperBackend for transcription."
