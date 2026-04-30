@@ -26,14 +26,14 @@
 
 | ID | Title | Type | Priority | Status | Sprint | Notes |
 |----|-------|------|----------|--------|--------|-------|
-| PB-009 | Android project setup (Kotlin, Compose, min SDK 26, Gradle) | Chore | High | Open | 2 | Single-module app structure |
-| PB-010 | Settings screen — IP:port input with DataStore persistence + validation | Feature | High | Open | 2 | Regex validation; show error on invalid format |
-| PB-011 | WebSocket client — OkHttp WebSocket, lifecycle-aware connection management | Feature | High | Open | 2 | Send config message on connect; handle close/error |
-| PB-012 | AudioRecord integration — 16kHz mono PCM 16-bit continuous capture | Feature | High | Open | 2 | Request RECORD_AUDIO permission on first launch |
-| PB-013 | Audio streaming — chunk PCM to server via binary WebSocket frames | Feature | High | Open | 2 | 512-sample chunks; coroutine-based sender |
-| PB-014 | Translation display — card list (ZH source + EN translation per utterance) | Feature | High | Open | 2 | Compose LazyColumn; auto-scroll to latest |
-| PB-015 | Android TTS integration (Speak mode) — EN text → TextToSpeech | Feature | High | Open | 2 | QUEUE_ADD; Locale.ENGLISH |
-| PB-016 | Connection status indicator + exponential backoff auto-reconnect | Feature | Medium | Open | 2 | Status chip; 1s/2s/4s/.../30s backoff |
+| PB-009 | Android project setup (Kotlin, Compose, min SDK 26, Gradle) | Chore | High | Done | 2 | Single-module app; assembleDebug passes |
+| PB-010 | Settings screen — IP:port input with DataStore persistence + validation | Feature | High | Done | 2 | Regex validation; inline error; DataStore |
+| PB-011 | WebSocket client — OkHttp WebSocket, lifecycle-aware connection management | Feature | High | Done | 2 | Config JSON on open; StateFlow status |
+| PB-012 | AudioRecord integration — 16kHz mono PCM 16-bit continuous capture | Feature | High | Done | 2 | 512-sample chunks; IO coroutine |
+| PB-013 | Audio streaming — chunk PCM to server via binary WebSocket frames | Feature | High | Done | 2 | Binary frames; little-endian PCM |
+| PB-014 | Translation display — card list (ZH source + EN translation per utterance) | Feature | High | Done | 2 | LazyColumn; auto-scroll; ElevatedCard |
+| PB-015 | Android TTS integration (Speak mode) — EN text → TextToSpeech | Feature | High | Done | 2 | QUEUE_ADD; Locale.ENGLISH; graceful failure |
+| PB-016 | Connection status indicator + exponential backoff auto-reconnect | Feature | Medium | Done | 2 | Colour chip; 1→2→4→8→30s backoff |
 
 ### Sprint 3 — Integration & Polish
 
@@ -85,3 +85,4 @@
 |------|--------|--------|
 | 2026-04-30 | Agent + nmd2k | Created — MVP scope (3 sprints) + future backlog |
 | 2026-04-30 | Agent (sprint/1) | PB-001–008 marked Done after Sprint 1 completion |
+| 2026-04-30 | Agent (sprint/2) | PB-009–016 marked Done after Sprint 2 completion |

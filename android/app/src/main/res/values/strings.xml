@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LanguagePartner</string>
+    <string name="settings">Settings</string>
+    <string name="server_address">Server Address</string>
+    <string name="server_address_hint">192.168.1.10:8080</string>
+    <string name="save">Save</string>
+    <string name="invalid_address_format">Invalid format. Use IP:port (e.g. 192.168.1.10:8080)</string>
+    <string name="mode_speak">Speak</string>
+    <string name="mode_read">Read</string>
+    <string name="status_connected">Connected</string>
+    <string name="status_connecting">Connecting</string>
+    <string name="status_disconnected">Disconnected</string>
+    <string name="status_error">Error</string>
+</resources>
