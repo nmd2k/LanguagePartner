@@ -243,7 +243,7 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
                         Log.d(TAG, "Connected — starting audio capture")
                         retryJob?.cancel()
                         retryJob = null
-                        if (!_paused.value) {
+                        if (!_paused.value && _mode.value == TranslationMode.SPEAK) {
                             startAudioCapture()
                         }
                     }
@@ -367,8 +367,20 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
 
     fun toggleMode() {
         _mode.value = when (_mode.value) {
-            TranslationMode.SPEAK -> TranslationMode.READ
-            TranslationMode.READ -> TranslationMode.SPEAK
+            TranslationMode.SPEAK -> {
+                stopAudioCapture()
+                if (connectionStatus.value == ConnectionStatus.CONNECTED) {
+                    webSocketClient.sendPause()
+                }
+                TranslationMode.READ
+            }
+            TranslationMode.READ -> {
+                if (connectionStatus.value == ConnectionStatus.CONNECTED && !_paused.value) {
+                    startAudioCapture()
+                    webSocketClient.sendResume()
+                }
+                TranslationMode.SPEAK
+            }
         }
         Log.d(TAG, "Mode toggled to ${_mode.value}")
         sendConfigIfConnected()
@@ -383,7 +395,7 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
             }
             Log.d(TAG, "Translation paused")
         } else {
-            if (connectionStatus.value == ConnectionStatus.CONNECTED) {
+            if (connectionStatus.value == ConnectionStatus.CONNECTED && _mode.value == TranslationMode.SPEAK) {
                 webSocketClient.sendResume()
                 startAudioCapture()
             }

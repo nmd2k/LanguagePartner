@@ -23,7 +23,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, Set
+from typing import Callable, Optional, Set
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
@@ -69,12 +69,24 @@ class WebSocketLogHandler(logging.Handler):
             dead: Set[WebSocket] = set()
             for ws in _connected_clients:
                 try:
-                    asyncio.create_task(ws.send_text(payload))
+                    coro = _ws_send_safe(ws, payload)
+                    try:
+                        asyncio.create_task(coro)
+                    except RuntimeError:
+                        dead.add(ws)
                 except Exception:
                     dead.add(ws)
             _connected_clients.difference_update(dead)
         except Exception:
             pass
+
+
+async def _ws_send_safe(ws: WebSocket, payload: str) -> None:
+    """Send a text frame, suppressing RuntimeError if the connection is closed."""
+    try:
+        await ws.send_text(payload)
+    except RuntimeError:
+        pass
 
 
 # Install the WebSocket log handler at INFO level
@@ -182,13 +194,20 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     # Step 2: Set up VAD with utterance callback
     loop = asyncio.get_event_loop()
+    _closed = False
+
+    def _is_closed() -> bool:
+        return _closed
 
     def on_utterance(utterance_audio):
         """Called by VADProcessor (sync) when an utterance is complete."""
+        if _is_closed():
+            return
         asyncio.run_coroutine_threadsafe(
             _handle_utterance(
                 utterance_audio, websocket, loop, mode,
                 whisper_lang, source_nllb, target_nllb,
+                _is_closed,
             ),
             loop,
         )
@@ -288,6 +307,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     except Exception as exc:  # pylint: disable=broad-except
         logger.exception("Unexpected error in WebSocket handler: %s", exc)
     finally:
+        _closed = True
         _connected_clients.discard(websocket)
         logger.info("WebSocket session ended for %s:%s.", client.host, client.port)
 
@@ -320,8 +340,12 @@ async def _handle_utterance(
     whisper_lang: str,
     source_nllb: str,
     target_nllb: str,
+    is_closed: Optional[Callable[[], bool]] = None,
 ) -> None:
     """Run ASR + translation for a detected utterance and send result."""
+    if is_closed is not None and is_closed():
+        return
+
     if _asr_backend is None or _translation_backend is None:
         logger.error("Backends not configured; cannot process utterance.")
         return
@@ -337,6 +361,8 @@ async def _handle_utterance(
         )
     except Exception as exc:  # pylint: disable=broad-except
         logger.exception("ASR failed: %s", exc)
+        if is_closed is not None and is_closed():
+            return
         await _send_error(websocket, "ASR_FAILED", str(exc))
         return
 
@@ -357,6 +383,9 @@ async def _handle_utterance(
 
     translate_latency = time.perf_counter() - translate_start
     total_latency = time.perf_counter() - total_start
+
+    if is_closed is not None and is_closed():
+        return
 
     try:
         await websocket.send_text(
@@ -379,5 +408,7 @@ async def _handle_utterance(
             _truncate_text(source_text),
             _truncate_text(translated_text),
         )
+    except RuntimeError:
+        logger.debug("Cannot send translation (connection closed).")
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning("Failed to send translation result: %s", exc)

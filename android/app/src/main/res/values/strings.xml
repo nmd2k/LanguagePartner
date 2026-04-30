@@ -34,4 +34,5 @@
     <string name="save_connect">Save &amp; Connect</string>
     <string name="connected_status">Connected</string>
     <string name="connection_failed">Connection failed</string>
+    <string name="stop_listening">Stop Listening</string>
 </resources>

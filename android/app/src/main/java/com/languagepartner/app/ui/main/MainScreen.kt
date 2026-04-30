@@ -88,7 +88,7 @@ fun MainScreen(
     var textInput by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    val isListening = connectionStatus == ConnectionStatus.CONNECTED && !paused
+    val isListening = connectionStatus == ConnectionStatus.CONNECTED && !paused && mode == TranslationMode.SPEAK
 
     LaunchedEffect(Unit) {
         viewModel.errorEvents.collectLatest { error ->
@@ -120,21 +120,20 @@ fun MainScreen(
             )
         },
         bottomBar = {
-            if (!isListening) {
-                BottomBar(
-                    textInput = textInput,
-                    onTextInputChange = { textInput = it },
-                    onSend = {
-                        if (textInput.isNotBlank()) {
-                            viewModel.sendTextInput(textInput)
-                            textInput = ""
-                        }
-                    },
-                    connectionStatus = connectionStatus,
-                    paused = paused,
-                    onMicToggle = { viewModel.togglePause() }
-                )
-            }
+            BottomBar(
+                textInput = textInput,
+                onTextInputChange = { textInput = it },
+                onSend = {
+                    if (textInput.isNotBlank()) {
+                        viewModel.sendTextInput(textInput)
+                        textInput = ""
+                    }
+                },
+                connectionStatus = connectionStatus,
+                paused = paused,
+                isListening = isListening,
+                onMicToggle = { viewModel.togglePause() }
+            )
         }
     ) { paddingValues ->
         Column(
@@ -142,15 +141,13 @@ fun MainScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (!isListening) {
-                LanguageBar(
-                    sourceLanguage = sourceLanguage,
-                    targetLanguage = targetLanguage,
-                    onSourceClick = { onNavigateToLanguagePicker(true) },
-                    onTargetClick = { onNavigateToLanguagePicker(false) },
-                    onSwap = { viewModel.swapLanguages() }
-                )
-            }
+            LanguageBar(
+                sourceLanguage = sourceLanguage,
+                targetLanguage = targetLanguage,
+                onSourceClick = { onNavigateToLanguagePicker(true) },
+                onTargetClick = { onNavigateToLanguagePicker(false) },
+                onSwap = { viewModel.swapLanguages() }
+            )
 
             Row(
                 modifier = Modifier
@@ -444,53 +441,89 @@ private fun BottomBar(
     onSend: () -> Unit,
     connectionStatus: ConnectionStatus,
     paused: Boolean,
+    isListening: Boolean,
     onMicToggle: () -> Unit
 ) {
     Surface(
         tonalElevation = 8.dp,
         shadowElevation = 8.dp
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = textInput,
-                onValueChange = onTextInputChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text(stringResource(R.string.type_to_translate)) },
-                singleLine = true,
-                shape = RoundedCornerShape(24.dp),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { onSend() })
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            IconButton(onClick = onSend) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Send"
-                )
-            }
-            IconButton(
-                onClick = onMicToggle,
-                enabled = connectionStatus != ConnectionStatus.DISCONNECTED
+        if (isListening) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
             ) {
-                when {
-                    connectionStatus == ConnectionStatus.CONNECTED && !paused -> Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = stringResource(R.string.pause),
-                        tint = Color(0xFFF44336)
+                Surface(
+                    onClick = onMicToggle,
+                    shape = RoundedCornerShape(28.dp),
+                    color = Color(0xFFF44336)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = stringResource(R.string.pause),
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.stop_listening),
+                            color = Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = textInput,
+                    onValueChange = onTextInputChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text(stringResource(R.string.type_to_translate)) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(24.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { onSend() })
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                IconButton(onClick = onSend) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = "Send"
                     )
-                    connectionStatus == ConnectionStatus.CONNECTED && paused -> Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = stringResource(R.string.resume)
-                    )
-                    else -> Icon(
-                        imageVector = Icons.Default.Mic,
-                        contentDescription = stringResource(R.string.pause)
-                    )
+                }
+                IconButton(
+                    onClick = onMicToggle,
+                    enabled = connectionStatus != ConnectionStatus.DISCONNECTED
+                ) {
+                    when {
+                        connectionStatus == ConnectionStatus.CONNECTED && !paused -> Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = stringResource(R.string.pause),
+                            tint = Color(0xFFF44336)
+                        )
+                        connectionStatus == ConnectionStatus.CONNECTED && paused -> Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = stringResource(R.string.resume)
+                        )
+                        else -> Icon(
+                            imageVector = Icons.Default.Mic,
+                            contentDescription = stringResource(R.string.pause)
+                        )
+                    }
                 }
             }
         }
