@@ -33,13 +33,18 @@ data class TranslationResult(
     val translatedText: String
 )
 
+sealed class WebSocketEvent {
+    data class Translation(val result: TranslationResult) : WebSocketEvent()
+    data class Error(val code: String, val message: String) : WebSocketEvent()
+}
+
 class WebSocketClient(private val okHttpClient: OkHttpClient) {
 
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
 
-    private val _translationResults = MutableSharedFlow<TranslationResult>(extraBufferCapacity = 64)
-    val translationResults: SharedFlow<TranslationResult> = _translationResults.asSharedFlow()
+    private val _translationResults = MutableSharedFlow<WebSocketEvent>(extraBufferCapacity = 64)
+    val translationResults: SharedFlow<WebSocketEvent> = _translationResults.asSharedFlow()
 
     private val gson = Gson()
     private var webSocket: WebSocket? = null
@@ -63,6 +68,20 @@ class WebSocketClient(private val okHttpClient: OkHttpClient) {
         val ws = webSocket ?: return
         if (_connectionStatus.value != ConnectionStatus.CONNECTED) return
         ws.send(pcmBytes.toByteString())
+    }
+
+    fun sendConfigMessage(mode: String) {
+        val ws = webSocket ?: return
+        if (_connectionStatus.value != ConnectionStatus.CONNECTED) return
+        val configJson = gson.toJson(
+            mapOf(
+                "type" to "config",
+                "sample_rate" to 16000,
+                "mode" to mode
+            )
+        )
+        ws.send(configJson)
+        Log.d(TAG, "Sent config: $configJson")
     }
 
     fun disconnect() {
@@ -98,12 +117,13 @@ class WebSocketClient(private val okHttpClient: OkHttpClient) {
                                 sourceText = json.get("source_text")?.asString ?: "",
                                 translatedText = json.get("translated_text")?.asString ?: ""
                             )
-                            _translationResults.tryEmit(result)
+                            _translationResults.tryEmit(WebSocketEvent.Translation(result))
                         }
                         "error" -> {
                             val code = json.get("code")?.asString ?: "UNKNOWN"
                             val message = json.get("message")?.asString ?: ""
                             Log.e(TAG, "Server error [$code]: $message")
+                            _translationResults.tryEmit(WebSocketEvent.Error(code, message))
                         }
                         else -> {
                             Log.w(TAG, "Unknown message type: $text")
