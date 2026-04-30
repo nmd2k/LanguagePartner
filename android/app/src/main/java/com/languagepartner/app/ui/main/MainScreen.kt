@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -120,19 +120,21 @@ fun MainScreen(
             )
         },
         bottomBar = {
-            BottomBar(
-                textInput = textInput,
-                onTextInputChange = { textInput = it },
-                onSend = {
-                    if (textInput.isNotBlank()) {
-                        viewModel.sendTextInput(textInput)
-                        textInput = ""
-                    }
-                },
-                connectionStatus = connectionStatus,
-                paused = paused,
-                onMicToggle = { viewModel.togglePause() }
-            )
+            if (!isListening) {
+                BottomBar(
+                    textInput = textInput,
+                    onTextInputChange = { textInput = it },
+                    onSend = {
+                        if (textInput.isNotBlank()) {
+                            viewModel.sendTextInput(textInput)
+                            textInput = ""
+                        }
+                    },
+                    connectionStatus = connectionStatus,
+                    paused = paused,
+                    onMicToggle = { viewModel.togglePause() }
+                )
+            }
         }
     ) { paddingValues ->
         Column(
@@ -140,13 +142,15 @@ fun MainScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            LanguageBar(
-                sourceLanguage = sourceLanguage,
-                targetLanguage = targetLanguage,
-                onSourceClick = { onNavigateToLanguagePicker(true) },
-                onTargetClick = { onNavigateToLanguagePicker(false) },
-                onSwap = { viewModel.swapLanguages() }
-            )
+            if (!isListening) {
+                LanguageBar(
+                    sourceLanguage = sourceLanguage,
+                    targetLanguage = targetLanguage,
+                    onSourceClick = { onNavigateToLanguagePicker(true) },
+                    onTargetClick = { onNavigateToLanguagePicker(false) },
+                    onSwap = { viewModel.swapLanguages() }
+                )
+            }
 
             Row(
                 modifier = Modifier
@@ -162,26 +166,39 @@ fun MainScreen(
                 ConnectionStatusChip(status = connectionStatus)
             }
 
-            WaveformVisualizer(isActive = isListening)
-
             if (isListening) {
-                LiveListeningIndicator()
-            }
+                WaveformVisualizer(isActive = true)
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(vertical = 8.dp)
-            ) {
-                itemsIndexed(utterances) { index, utterance ->
-                    ConversationBubble(
-                        utterance = utterance,
-                        isLeftAligned = index % 2 == 0
-                    )
+                LiveListeningIndicator()
+
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp)
+                ) {
+                    items(utterances) { utterance ->
+                        ConversationBubble(utterance = utterance)
+                    }
+                }
+            } else {
+                WaveformVisualizer(isActive = false)
+
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp)
+                ) {
+                    items(utterances) { utterance ->
+                        ConversationBubble(utterance = utterance)
+                    }
                 }
             }
         }
@@ -379,33 +396,19 @@ private fun LiveListeningIndicator() {
 
 @Composable
 private fun ConversationBubble(
-    utterance: Utterance,
-    isLeftAligned: Boolean
+    utterance: Utterance
 ) {
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    val speakerLetter = if (isLeftAligned) "A" else "B"
-    val bubbleColor = if (isLeftAligned)
-        MaterialTheme.colorScheme.surfaceVariant
-    else
-        MaterialTheme.colorScheme.primaryContainer
-    val speakerColor = if (isLeftAligned)
-        MaterialTheme.colorScheme.primary
-    else
-        MaterialTheme.colorScheme.tertiary
+    val bubbleColor = MaterialTheme.colorScheme.surfaceVariant
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = if (isLeftAligned) Alignment.Start else Alignment.End
+        horizontalAlignment = Alignment.Start
     ) {
-        SpeakerChip(
-            letter = speakerLetter,
-            color = speakerColor
-        )
-        Spacer(modifier = Modifier.height(4.dp))
         Surface(
             shape = RoundedCornerShape(
-                topStart = if (isLeftAligned) 4.dp else 16.dp,
-                topEnd = if (isLeftAligned) 16.dp else 4.dp,
+                topStart = 4.dp,
+                topEnd = 16.dp,
                 bottomStart = 16.dp,
                 bottomEnd = 16.dp
             ),
@@ -430,27 +433,6 @@ private fun ConversationBubble(
             text = timeFormat.format(Date(utterance.timestamp)),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.outline
-        )
-    }
-}
-
-@Composable
-private fun SpeakerChip(
-    letter: String,
-    color: Color
-) {
-    Box(
-        modifier = Modifier
-            .size(24.dp)
-            .clip(CircleShape)
-            .background(color),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = letter,
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold
         )
     }
 }

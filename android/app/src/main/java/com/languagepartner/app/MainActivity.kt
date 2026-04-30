@@ -22,6 +22,7 @@ import com.languagepartner.app.ui.main.MainScreen
 import com.languagepartner.app.ui.picker.LanguagePickerScreen
 import com.languagepartner.app.ui.settings.ServerSetupScreen
 import com.languagepartner.app.ui.settings.SettingsScreen
+import com.languagepartner.app.ui.debug.DebugScreen
 import com.languagepartner.app.ui.theme.LanguagePartnerTheme
 import com.languagepartner.app.viewmodel.Language
 import com.languagepartner.app.viewmodel.TranslationViewModel
@@ -78,7 +79,8 @@ fun LanguagePartnerApp() {
                 onNavigateToServerSetup = { navController.navigate("server_setup") },
                 onNavigateToLanguagePicker = { isSource ->
                     navController.navigate("language_picker/${isSource}")
-                }
+                },
+                onNavigateToDebug = { navController.navigate("debug") }
             )
         }
         composable("server_setup") {
@@ -117,6 +119,12 @@ fun LanguagePartnerApp() {
                     }
                     navController.popBackStack()
                 },
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+        composable("debug") {
+            DebugScreen(
+                viewModel = translationViewModel,
                 onNavigateBack = { navController.popBackStack() }
             )
         }

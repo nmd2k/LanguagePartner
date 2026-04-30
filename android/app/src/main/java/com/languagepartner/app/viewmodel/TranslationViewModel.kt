@@ -36,6 +36,12 @@ data class Utterance(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+data class LogEntry(
+    val timestamp: String,
+    val level: String,
+    val message: String
+)
+
 data class Language(
     val code: String,
     val name: String,
@@ -75,6 +81,14 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
 
     private val _errorEvents = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val errorEvents: SharedFlow<String> = _errorEvents.asSharedFlow()
+
+    private val _logEntries = MutableStateFlow<List<LogEntry>>(
+        listOf(
+            LogEntry("—", "INFO", "Debug console ready. Connect to a server to receive logs."),
+            LogEntry("—", "INFO", "Waiting for server connection...")
+        )
+    )
+    val logEntries: StateFlow<List<LogEntry>> = _logEntries.asStateFlow()
 
     private val _mode = MutableStateFlow(TranslationMode.SPEAK)
     val mode: StateFlow<TranslationMode> = _mode.asStateFlow()
@@ -123,21 +137,37 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
+    private fun ttsLocaleForLanguage(code: String): Locale = when (code) {
+        "en" -> Locale.ENGLISH
+        "zh" -> Locale.CHINESE
+        "vi" -> Locale("vi")
+        "si" -> Locale("si")
+        else -> Locale.ENGLISH
+    }
+
     private fun initTts() {
         tts = TextToSpeech(getApplication()) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                val result = tts?.setLanguage(Locale.ENGLISH)
+                val targetLocale = ttsLocaleForLanguage(_targetLanguage.value.code)
+                val result = tts?.setLanguage(targetLocale)
                 if (result == TextToSpeech.LANG_MISSING_DATA ||
                     result == TextToSpeech.LANG_NOT_SUPPORTED
                 ) {
-                    Log.e(TAG, "TTS: English language not supported")
-                    ttsReady = false
-                    if (_mode.value == TranslationMode.SPEAK) {
-                        _mode.value = TranslationMode.READ
+                    Log.e(TAG, "TTS: $targetLocale language not supported, falling back to English")
+                    val fallback = tts?.setLanguage(Locale.ENGLISH)
+                    if (fallback == TextToSpeech.LANG_MISSING_DATA ||
+                        fallback == TextToSpeech.LANG_NOT_SUPPORTED
+                    ) {
+                        ttsReady = false
+                        if (_mode.value == TranslationMode.SPEAK) {
+                            _mode.value = TranslationMode.READ
+                        }
+                    } else {
+                        ttsReady = true
                     }
                 } else {
                     ttsReady = true
-                    Log.d(TAG, "TTS initialized with English locale")
+                    Log.d(TAG, "TTS initialized with locale $targetLocale")
                 }
             } else {
                 Log.e(TAG, "TTS init failed: $status")
@@ -146,6 +176,19 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
                     _mode.value = TranslationMode.READ
                 }
             }
+        }
+    }
+
+    private fun updateTtsLocale() {
+        val targetLocale = ttsLocaleForLanguage(_targetLanguage.value.code)
+        val result = tts?.setLanguage(targetLocale)
+        if (result == TextToSpeech.LANG_MISSING_DATA ||
+            result == TextToSpeech.LANG_NOT_SUPPORTED
+        ) {
+            Log.e(TAG, "TTS: $targetLocale not supported, falling back to English")
+            tts?.setLanguage(Locale.ENGLISH)
+        } else {
+            Log.d(TAG, "TTS locale updated to $targetLocale")
         }
     }
 
@@ -160,7 +203,7 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
                             sourceText = result.sourceText,
                             translatedText = result.translatedText
                         )
-                        _utterances.value = listOf(utterance) + _utterances.value
+                        _utterances.value = _utterances.value + listOf(utterance)
                         if (_mode.value == TranslationMode.SPEAK && ttsReady) {
                             tts?.speak(
                                 result.translatedText,
@@ -173,6 +216,19 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
                     is WebSocketEvent.Error -> {
                         val errorMessage = formatErrorMessage(event.code, event.message)
                         _errorEvents.tryEmit(errorMessage)
+                        _logEntries.value = _logEntries.value + LogEntry(
+                            timestamp = java.text.SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
+                                .format(java.util.Date()),
+                            level = "ERROR",
+                            message = errorMessage
+                        )
+                    }
+                    is WebSocketEvent.Log -> {
+                        _logEntries.value = _logEntries.value + LogEntry(
+                            timestamp = event.timestamp,
+                            level = event.level,
+                            message = event.message
+                        )
                     }
                 }
             }
@@ -315,13 +371,7 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
             TranslationMode.READ -> TranslationMode.SPEAK
         }
         Log.d(TAG, "Mode toggled to ${_mode.value}")
-        if (connectionStatus.value == ConnectionStatus.CONNECTED) {
-            webSocketClient.sendConfigFull(
-                _mode.value.toModeString(),
-                _sourceLanguage.value.code,
-                _targetLanguage.value.code
-            )
-        }
+        sendConfigIfConnected()
     }
 
     fun togglePause() {
@@ -351,29 +401,26 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun setSourceLanguage(code: String) {
+        if (code == _targetLanguage.value.code) {
+            swapLanguages()
+            return
+        }
         val lang = Language.fromCode(code)
         _sourceLanguage.value = lang
         viewModelScope.launch { settingsRepository.saveSourceLanguage(code) }
-        if (connectionStatus.value == ConnectionStatus.CONNECTED) {
-            webSocketClient.sendConfigFull(
-                _mode.value.toModeString(),
-                _sourceLanguage.value.code,
-                _targetLanguage.value.code
-            )
-        }
+        sendConfigIfConnected()
     }
 
     fun setTargetLanguage(code: String) {
+        if (code == _sourceLanguage.value.code) {
+            swapLanguages()
+            return
+        }
         val lang = Language.fromCode(code)
         _targetLanguage.value = lang
         viewModelScope.launch { settingsRepository.saveTargetLanguage(code) }
-        if (connectionStatus.value == ConnectionStatus.CONNECTED) {
-            webSocketClient.sendConfigFull(
-                _mode.value.toModeString(),
-                _sourceLanguage.value.code,
-                _targetLanguage.value.code
-            )
-        }
+        updateTtsLocale()
+        sendConfigIfConnected()
     }
 
     fun swapLanguages() {
@@ -384,6 +431,11 @@ class TranslationViewModel(application: Application) : AndroidViewModel(applicat
             settingsRepository.saveSourceLanguage(_sourceLanguage.value.code)
             settingsRepository.saveTargetLanguage(_targetLanguage.value.code)
         }
+        updateTtsLocale()
+        sendConfigIfConnected()
+    }
+
+    private fun sendConfigIfConnected() {
         if (connectionStatus.value == ConnectionStatus.CONNECTED) {
             webSocketClient.sendConfigFull(
                 _mode.value.toModeString(),

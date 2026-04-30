@@ -43,7 +43,8 @@ fun SettingsScreen(
     serverAddress: String,
     onNavigateBack: () -> Unit,
     onNavigateToServerSetup: () -> Unit,
-    onNavigateToLanguagePicker: (isSource: Boolean) -> Unit
+    onNavigateToLanguagePicker: (isSource: Boolean) -> Unit,
+    onNavigateToDebug: () -> Unit = {}
 ) {
     Scaffold(
         topBar = {
@@ -110,7 +111,7 @@ fun SettingsScreen(
                 title = "Debug console",
                 subtitle = "Log level: INFO",
                 leadingIcon = Icons.Filled.BugReport,
-                onClick = { }
+                onClick = onNavigateToDebug
             )
         }
     }

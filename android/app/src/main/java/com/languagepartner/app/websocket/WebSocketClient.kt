@@ -35,6 +35,7 @@ data class TranslationResult(
 sealed class WebSocketEvent {
     data class Translation(val result: TranslationResult) : WebSocketEvent()
     data class Error(val code: String, val message: String) : WebSocketEvent()
+    data class Log(val timestamp: String, val level: String, val message: String) : WebSocketEvent()
 }
 
 class WebSocketClient(private val okHttpClient: OkHttpClient) {
@@ -177,6 +178,12 @@ class WebSocketClient(private val okHttpClient: OkHttpClient) {
                             val message = json.get("message")?.asString ?: ""
                             Log.e(TAG, "Server error [$code]: $message")
                             _translationResults.tryEmit(WebSocketEvent.Error(code, message))
+                        }
+                        "log" -> {
+                            val timestamp = json.get("timestamp")?.asString ?: ""
+                            val level = json.get("level")?.asString ?: "INFO"
+                            val msg = json.get("message")?.asString ?: ""
+                            _translationResults.tryEmit(WebSocketEvent.Log(timestamp, level, msg))
                         }
                         else -> {
                             Log.w(TAG, "Unknown message type: $text")

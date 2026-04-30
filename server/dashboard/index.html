@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LP Dashboard — Model Hosting</title>
+<style>
+  :root {
+    --bg: #f4fbf8;
+    --surface: #fff;
+    --line: #e0e6e3;
+    --ink: #171d1b;
+    --ink-3: rgba(23,29,27,0.55);
+    --ink-4: rgba(23,29,27,0.35);
+    --accent: #006a60;
+    --accent-2: rgba(0,106,96,0.08);
+    --ok: #2e7d32;
+    --warn: #ed6c02;
+    --err: #d32f2f;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--ink);
+    min-height: 100vh;
+    display: flex;
+  }
+  .sidebar {
+    width: 200px;
+    background: var(--bg);
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    padding: 20px 8px;
+  }
+  .sidebar .logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px 16px;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+  .sidebar .logo-icon {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 14px;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+  .nav-item.active {
+    background: var(--accent-2);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .nav-item:hover { background: rgba(0,0,0,0.04); }
+  .content {
+    flex: 1;
+    padding: 24px 28px;
+    overflow-y: auto;
+  }
+  .content h1 {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.4px;
+    margin-bottom: 20px;
+  }
+  .table-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    margin-bottom: 28px;
+    overflow: hidden;
+  }
+  .table-header {
+    display: flex;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .table-header button {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--accent);
+    background: var(--accent-2);
+    border: none;
+    padding: 6px 12px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-weight: 500;
+  }
+  .grid-header {
+    display: grid;
+    grid-template-columns: 1fr 64px 80px 56px 56px 80px;
+    padding: 8px 18px;
+    font-size: 11px;
+    color: var(--ink-4);
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    gap: 8px;
+  }
+  .model-row {
+    display: grid;
+    grid-template-columns: 1fr 64px 80px 56px 56px 80px;
+    padding: 11px 18px;
+    border-top: 1px solid var(--line);
+    align-items: center;
+    gap: 8px;
+  }
+  .model-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot.ok { background: var(--ok); }
+  .dot.off { background: var(--ink-4); }
+  .tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-weight: 500;
+    background: rgba(0,0,0,0.06);
+  }
+  .btn {
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid;
+    border-radius: 6px;
+    padding: 4px 8px;
+    background: none;
+  }
+  .btn.unload { color: var(--err); border-color: var(--err); }
+  .btn.load { color: var(--ok); border-color: var(--ok); }
+  .filter-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .filter-btn {
+    font-size: 12px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink-3);
+    cursor: pointer;
+  }
+  .filter-btn.active {
+    background: var(--ink);
+    color: #fff;
+    font-weight: 600;
+  }
+  .catalog-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .catalog-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .catalog-card .name {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .catalog-card .desc {
+    font-size: 11px;
+    color: var(--ink-3);
+    margin-top: 3px;
+  }
+  .catalog-card .meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .catalog-card .size {
+    font-size: 10px;
+    color: var(--ink-4);
+    flex: 1;
+  }
+  .btn-sm {
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--accent-2);
+    border: none;
+    padding: 5px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .lat { font-size: 12px; color: var(--ok); font-family: var(--font-mono); }
+  .mem { font-size: 12px; color: var(--ink-3); }
+  .sess { font-size: 12px; color: var(--ink-3); }
+  .loading { color: var(--warn); text-align: center; padding: 40px; }
+</style>
+</head>
+<body>
+<div class="sidebar">
+  <div class="logo">
+    <div class="logo-icon">LP</div>
+    LP Dashboard
+  </div>
+  <nav>
+    <div class="nav-item" onclick="navTo('overview')">Overview</div>
+    <div class="nav-item active" onclick="navTo('models')">Models</div>
+    <div class="nav-item" onclick="navTo('sessions')">Sessions</div>
+    <div class="nav-item" onclick="navTo('settings')">Settings</div>
+  </nav>
+</div>
+<div class="content" id="content">
+  <h1>Model Hosting</h1>
+
+  <div class="table-card">
+    <div class="table-header">
+      <span>Running Models</span>
+      <span style="margin-left:auto;font-size:12px;color:var(--ink-3);" id="modelCount">0 loaded</span>
+    </div>
+    <div class="grid-header">
+      <span>Name</span><span>Role</span><span>VRAM</span><span>Lat</span><span>Sess</span><span>Action</span>
+    </div>
+    <div id="modelList"></div>
+  </div>
+
+  <h2 style="font-size:16px;font-weight:600;margin-bottom:14px;">Model Browser</h2>
+  <div class="filter-bar">
+    <button class="filter-btn active" onclick="filterCatalog('All')">All</button>
+    <button class="filter-btn" onclick="filterCatalog('ASR')">ASR</button>
+    <button class="filter-btn" onclick="filterCatalog('MT')">MT</button>
+    <button class="filter-btn" onclick="filterCatalog('TTS')">TTS</button>
+  </div>
+  <div class="catalog-grid" id="catalogGrid"></div>
+</div>
+
+<script>
+const catalog = [
+  { name: "whisper-large-v3", role: "ASR", size: "6.2 GB", rec: true, desc: "Best accuracy, supports 99 languages" },
+  { name: "whisper-medium", role: "ASR", size: "1.5 GB", rec: false, desc: "Faster, lighter alternative" },
+  { name: "nllb-200-distilled", role: "MT", size: "2.1 GB", rec: true, desc: "Meta's 200-language translation model" },
+  { name: "hy-mt1.5-1.8b", role: "MT", size: "1.8 GB", rec: true, desc: "Tencent Hy-MT1.5 via llama.cpp — fast GGUF" },
+  { name: "opus-mt-en-zh", role: "MT", size: "300 MB", rec: false, desc: "Lightweight EN↔ZH only" },
+  { name: "coqui-tts-zh", role: "TTS", size: "1.4 GB", rec: true, desc: "Natural Mandarin synthesis" },
+  { name: "piper-en-us", role: "TTS", size: "60 MB", rec: false, desc: "Tiny, offline English TTS" },
+];
+
+let filter = 'All';
+
+function navTo(section) {
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  event.target.classList.add('active');
+  fetch('/api/models').then(r => r.json()).then(data => render(data.models));
+}
+
+function filterCatalog(role) {
+  filter = role;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  renderCatalog();
+}
+
+function renderCatalog() {
+  const filtered = filter === 'All' ? catalog : catalog.filter(c => c.role === filter);
+  document.getElementById('catalogGrid').innerHTML = filtered.map(c => `
+    <div class="catalog-card">
+      <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:6px">
+        <div style="flex:1">
+          <div class="name">${c.name}</div>
+          <div class="desc">${c.desc}</div>
+        </div>
+        ${c.rec ? '<span class="tag" style="color:var(--accent)">★ Rec</span>' : ''}
+      </div>
+      <div class="meta">
+        <span class="size">${c.size}</span>
+        <span class="tag">${c.role}</span>
+        <button class="btn-sm">Load</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function render(models) {
+  document.getElementById('modelCount').textContent = models.length + ' loaded';
+  document.getElementById('modelList').innerHTML = models.map(m => `
+    <div class="model-row">
+      <div class="model-name">
+        <div class="dot ${m.status === 'ok' ? 'ok' : 'off'}"></div>
+        ${m.name}
+      </div>
+      <span class="tag">${m.role}</span>
+      <span class="mem">${m.mem}</span>
+      <span class="lat">${m.lat}</span>
+      <span class="sess">${m.sessions || '—'}</span>
+      <button class="btn ${m.status === 'ok' ? 'unload' : 'load'}">${m.status === 'ok' ? 'Unload' : 'Load'}</button>
+    </div>
+  `).join('') || '<div class="loading">No models loaded</div>';
+}
+
+fetch('/api/models').then(r => r.json()).then(data => render(data.models));
+renderCatalog();
+</script>
+</body>
+</html>

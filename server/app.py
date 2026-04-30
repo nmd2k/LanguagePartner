@@ -8,11 +8,12 @@ Protocol (see SRS §2.5):
   3. Server enters audio-receive loop: binary frames → VADProcessor
   4. On utterance detection: transcribe → translate → send translation JSON
   5. Mid-session messages:
-       - config:  update mode, languages
-       - pause:   stop processing audio (VAD skips)
-       - resume:  resume processing audio
-       - text_input:  translate a text string and return result
+        - config:  update mode, languages
+        - pause:   stop processing audio (VAD skips)
+        - resume:  resume processing audio
+        - text_input:  translate a text string and return result
   6. On inference error: send error JSON
+  7. Structured log messages are broadcast to all connected clients as "log" events.
 
 All model calls go through the InferenceBackend ABC — no direct model calls here.
 """
@@ -21,7 +22,8 @@ import json
 import logging
 import time
 import uuid
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Optional, Set
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
@@ -38,12 +40,48 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="LanguagePartner Server")
 
+# Mount the dashboard router
+from dashboard import router as dashboard_router
+app.include_router(dashboard_router)
+
 _asr_backend: Optional[InferenceBackend] = None
 _translation_backend: Optional[InferenceBackend] = None
 
 # Default language pair
 _DEFAULT_SOURCE = "zh"
 _DEFAULT_TARGET = "en"
+
+# Connected WebSocket clients for log broadcasting
+_connected_clients: Set[WebSocket] = set()
+
+
+class WebSocketLogHandler(logging.Handler):
+    """Custom logging handler that broadcasts log records to all WebSocket clients."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            payload = json.dumps({
+                "type": "log",
+                "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S.%f")[:-3],
+                "level": record.levelname,
+                "message": self.format(record),
+            })
+            dead: Set[WebSocket] = set()
+            for ws in _connected_clients:
+                try:
+                    asyncio.create_task(ws.send_text(payload))
+                except Exception:
+                    dead.add(ws)
+            _connected_clients.difference_update(dead)
+        except Exception:
+            pass
+
+
+# Install the WebSocket log handler at INFO level
+_ws_log_handler = WebSocketLogHandler()
+_ws_log_handler.setLevel(logging.INFO)
+_ws_log_handler.setFormatter(logging.Formatter("%(message)s"))
+logging.getLogger().addHandler(_ws_log_handler)
 
 
 def configure_backends(
@@ -101,6 +139,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
     client = websocket.client
     logger.info("New WebSocket connection from %s:%s", client.host, client.port)
+    _connected_clients.add(websocket)
 
     # Step 1: Wait for config message
     try:
@@ -249,6 +288,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     except Exception as exc:  # pylint: disable=broad-except
         logger.exception("Unexpected error in WebSocket handler: %s", exc)
     finally:
+        _connected_clients.discard(websocket)
         logger.info("WebSocket session ended for %s:%s.", client.host, client.port)
 
 

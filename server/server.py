@@ -2,15 +2,18 @@
 
 Usage:
     python server.py --port 8765 --model medium --device auto
+    python server.py --port 8765 --translation-backend hy-mt1.5
 
 Flags:
-    --port    WebSocket listen port (default: 8765)
-    --model   Whisper model size: tiny/base/small/medium/large (default: medium)
-    --device  Inference device: auto/cpu/cuda (default: auto)
-              auto → tries CUDA first, then MPS (Apple Silicon), falls back to CPU.
+    --port                 WebSocket listen port (default: 8765)
+    --model                Whisper model size: tiny/base/small/medium/large (default: medium)
+    --device               Inference device: auto/cpu/cuda (default: auto)
+                            auto → tries CUDA first, then MPS (Apple Silicon), falls back to CPU.
+    --translation-backend  Translation backend: nllb | hy-mt1.5 (default: nllb)
 
 Environment variables:
-    MOCK_MODE=1  Start with mock backends (no model loading, for testing)
+    MOCK_MODE=1            Start with mock backends (no model loading, for testing)
+    HYMT15_MODEL_PATH      Path to Hy-MT1.5 GGUF model file
 """
 import argparse
 import logging
@@ -70,6 +73,13 @@ def main() -> None:
         choices=["auto", "cpu", "cuda", "mps"],
         help="Inference device: auto|cpu|cuda|mps (default: auto)",
     )
+    parser.add_argument(
+        "--translation-backend",
+        type=str,
+        default="nllb",
+        choices=["nllb", "hy-mt1.5"],
+        help="Translation backend: nllb (NLLB-600M) | hy-mt1.5 (Hy-MT1.5 via llama.cpp) (default: nllb)",
+    )
     args = parser.parse_args()
 
     # Check for mock mode (for testing without models)
@@ -110,17 +120,36 @@ def main() -> None:
 
         asr = WhisperBackend(model_size=args.model, device=device)
 
-        logger.info("Loading TranslationBackend …")
-        from backend.translation_backend import TranslationBackend  # type: ignore
+        # Load translation backend
+        if args.translation_backend == "hy-mt1.5":
+            logger.info("Loading LlamaCppBackend (Hy-MT1.5) …")
+            from backend.llama_translation_backend import LlamaCppBackend  # type: ignore
 
-        translation = TranslationBackend(device=device)
+            translation = LlamaCppBackend(device=device)
+            if not translation.is_loaded:
+                logger.warning(
+                    "Hy-MT1.5 failed to load; falling back to NLLB-600M. "
+                    "Reason: %s", translation.status_message
+                )
+                from backend.translation_backend import TranslationBackend  # type: ignore
+                translation = TranslationBackend(device=device)
+        else:
+            logger.info("Loading TranslationBackend (NLLB-600M) …")
+            from backend.translation_backend import TranslationBackend  # type: ignore
+
+            translation = TranslationBackend(device=device)
 
     # Wire backends into the FastAPI app
     from app import app, configure_backends  # type: ignore
 
     configure_backends(asr, translation)
 
-    print(f"Models loaded. Listening on ws://0.0.0.0:{args.port}")
+    print(
+        f"Models loaded. "
+        f"Listening on ws://0.0.0.0:{args.port} "
+        f"[ASR: whisper-{args.model}, "
+        f"MT: {type(translation).__name__}]"
+    )
 
     # Start uvicorn
     import uvicorn  # type: ignore
