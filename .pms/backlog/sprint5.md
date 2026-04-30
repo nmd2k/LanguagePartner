@@ -20,7 +20,14 @@
 
 | ID | Backlog ref | Task | Completed | Verified by |
 |----|-------------|------|-----------|-------------|
-| — | — | — | — | — |
+| S5-001 | PB-030 | Fix reverse/swap button collision | 2026-04-30 | assembleDebug |
+| S5-002 | PB-031 | Fix bubble alignment + append ordering | 2026-04-30 | assembleDebug |
+| S5-003 | PB-032 | Hide typing bar/swap when listening | 2026-04-30 | assembleDebug |
+| S5-004 | PB-033 | Dynamic TTS locale | 2026-04-30 | assembleDebug |
+| S5-005 | PB-034 | Android Debug screen | 2026-04-30 | assembleDebug |
+| S5-006 | PB-035 | Server model hosting dashboard | 2026-04-30 | /dashboard |
+| S5-007 | PB-036 | Hy-MT1.5 via llama.cpp | 2026-04-30 | import check |
+| S5-008 | PB-037 | Server log streaming | 2026-04-30 | assembleDebug, pytest |
 
 ---
 
