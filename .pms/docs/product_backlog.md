@@ -46,6 +46,33 @@
 | PB-021 | Setup documentation (README: server install + APK sideload steps) | Chore | Medium | Done | 3 | Target: non-developer user can follow |
 | PB-022 | Server request logging (utterance ID, ASR latency, translation latency, total) | Chore | Low | Done | 3 | stdout structured log |
 
+### Sprint 4 — v1: Language Selection, Pause Control & UI Redesign
+
+| ID | Title | Type | Priority | Status | Sprint | Notes |
+|----|-------|------|----------|--------|--------|-------|
+| PB-023 | Language config infrastructure — remove hardcoded ZH→EN; NLLB/Whisper code mapping for EN/ZH/VI/SI; extend WebSocket config protocol | Feature | High | Done | 4 | NLLB: eng_Latn, zho_Hans, vie_Latn, sin_Sinh |
+| PB-024 | Pause/Resume translation control — server skip VAD loop; Android stop/start AudioCapture; pause button UI | Feature | High | Done | 4 | Mic button toggles between mic/pause |
+| PB-025 | Text input translation — server handle `text_input` message; Android text bar + send button; display result as bubble | Feature | High | Done | 4 | Reuses TranslationBackend.translate() |
+| PB-026 | Main screen redesign — language bar + swap, conversation bubbles (speaker chip + original + translated + timestamp), waveform visualizer, bottom bar (text input + mic/pause) | Feature | High | Done | 4 | Follows ScreenMain mockup |
+| PB-027 | Language picker screen — searchable list with code badge/name/native name; checkmark selection; 4 languages | Feature | High | Done | 4 | EN, ZH, VI, SI |
+| PB-028 | Settings & Server Setup redesign — sections (Account/Translation/Developer); URL field + connection test + recent servers; DataStore for lang prefs | Feature | Medium | Done | 4 | Follows ScreenSettings + ScreenServerSetup mockups |
+| PB-029 | License (CC BY-NC 4.0) + README update | Chore | Medium | Done | 4 | |
+
+---
+
+### Sprint 5 — User Experiment (UX Polish & Model Hosting)
+
+| ID | Title | Type | Priority | Status | Sprint | Notes |
+|----|-------|------|----------|--------|--------|-------|
+| PB-030 | Fix reverse/swap button — prevent source==target collision; swap when picking a language that matches the other side | Bug | High | Open | 5 | Bug #1 |
+| PB-031 | Fix conversation bubble alignment — remove alternating left/right; all bubbles on one side; append new utterances to bottom | Bug | High | Open | 5 | Bugs #2, #3 |
+| PB-032 | Hide typing bar and swap when listening; waveform animation only active when mic is recording | Bug | High | Open | 5 | Bug #4 |
+| PB-033 | Dynamic TTS locale — set TTS voice language based on target language, not hardcoded English | Bug | High | Open | 5 | Bug #5 |
+| PB-034 | Android Debug screen — log viewer panel showing server log entries (timestamps, levels, messages) | Feature | Medium | Open | 5 | Follows ScreenDebug mockup; Bug #6 |
+| PB-035 | Server model hosting dashboard — Running Models table + Model Browser catalog with Load/Unload, role filter, VRAM/latency stats | Feature | High | Open | 5 | Follows DashModels mockup; Feature #7 |
+| PB-036 | Swap NLLB-600M with Hy-MT1.5 via llama.cpp — integrate tencent/Hy-MT1.5-1.8B-1.25bit-GGUF for faster translation | Feature | High | Open | 5 | Feature #8 |
+| PB-037 | Server-side structured logging — emit log events via event bus for Android debug panel consumption | Feature | Medium | Open | 5 | Server→Client log streaming |
+
 ---
 
 ## Future Backlog (V2 / V3)
@@ -56,7 +83,7 @@
 | PB-F02 | Custom C++ inference backend — own runtime wrapping model weights | Spike | High | Open | — | Replaces PyTorch; InferenceBackend ABC makes this a swap |
 | PB-F03 | Selective language filtering — user picks N languages; others excluded | Feature | Medium | Open | — | Requires language ID step before translation |
 | PB-F04 | Speaker diarization + voice print tracking | Feature | Medium | Open | — | Multi-speaker conversation support; label each utterance by speaker |
-| PB-F05 | Multi-language pair support (beyond ZH→EN) | Feature | Medium | Open | — | UI to select source/target; server to load appropriate model |
+| PB-F05 | Multi-language pair support (beyond ZH→EN) | Feature | Medium | **Done via Sprint 4** | 4 | PB-023 covers this |
 | PB-F06 | mDNS server auto-discovery | Feature | Low | Open | — | Remove manual IP:port entry |
 | PB-F07 | Authentication (API key or token) | Feature | Low | Open | — | Required before any multi-user or internet-exposed deployment |
 | PB-F08 | iOS client | Feature | Low | Open | — | Separate native app or shared Kotlin Multiplatform layer |
@@ -87,3 +114,5 @@
 | 2026-04-30 | Agent (sprint/1) | PB-001–008 marked Done after Sprint 1 completion |
 | 2026-04-30 | Agent (sprint/2) | PB-009–016 marked Done after Sprint 2 completion |
 | 2026-04-30 | Agent (sprint/3) | PB-017–022 marked Done after Sprint 3 completion; MVP complete |
+| 2026-04-30 | Agent + nmd2k | Sprint 4 v1 scope added — PB-023–029 (language selection, pause control, text input, UI redesign, license); PB-F05 closed as Done via Sprint 4 |
+| 2026-04-30 | Agent | Sprint 4 closed — PB-023–029 marked Done; Sprint 5 scope added — PB-030–037 (UX polish, debug screen, model hosting, Hy-MT1.5) |
