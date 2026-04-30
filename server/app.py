@@ -135,15 +135,16 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             except asyncio.TimeoutError:
                 # Check for text messages (config updates) periodically
                 try:
-                    raw_msg = await asyncio.wait_for(
-                        websocket.receive_text(), timeout=0.01
+                    message = await asyncio.wait_for(
+                        websocket.receive(), timeout=0.01
                     )
-                    msg = json.loads(raw_msg)
-                    if msg.get("type") == "config":
-                        new_mode = str(msg.get("mode", mode))
-                        if new_mode != mode:
-                            mode = new_mode
-                            logger.info("Mode updated mid-session: mode=%s", mode)
+                    if "text" in message:
+                        msg = json.loads(message["text"])
+                        if msg.get("type") == "config":
+                            new_mode = str(msg.get("mode", mode))
+                            if new_mode != mode:
+                                mode = new_mode
+                                logger.info("Mode updated mid-session: mode=%s", mode)
                 except (asyncio.TimeoutError, json.JSONDecodeError):
                     pass
     except WebSocketDisconnect:

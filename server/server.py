@@ -1,10 +1,10 @@
 """LanguagePartner server entrypoint.
 
 Usage:
-    python server.py --port 8080 --model medium --device auto
+    python server.py --port 8765 --model medium --device auto
 
 Flags:
-    --port    WebSocket listen port (default: 8080)
+    --port    WebSocket listen port (default: 8765)
     --model   Whisper model size: tiny/base/small/medium/large (default: medium)
     --device  Inference device: auto/cpu/cuda (default: auto)
               auto → tries CUDA first, then MPS (Apple Silicon), falls back to CPU.
@@ -54,8 +54,8 @@ def main() -> None:
     parser.add_argument(
         "--port",
         type=int,
-        default=8080,
-        help="WebSocket listen port (default: 8080)",
+        default=8765,
+        help="WebSocket listen port (default: 8765)",
     )
     parser.add_argument(
         "--model",

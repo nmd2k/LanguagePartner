@@ -150,8 +150,14 @@ class WebSocketClient(private val okHttpClient: OkHttpClient) {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket failure", t)
+                Log.e(TAG, "WebSocket failure: ${t.message}", t)
                 _connectionStatus.value = ConnectionStatus.ERROR
+                _translationResults.tryEmit(
+                    WebSocketEvent.Error(
+                        "SERVER_UNREACHABLE",
+                        t.message ?: "Unknown connection error"
+                    )
+                )
             }
         }
     }
