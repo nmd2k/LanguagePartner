@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+pip-wheel-metadata/
+*.whl
+
+# Models (large binary weights)
+*.bin
+*.pt
+*.gguf
+*.safetensors
+models/
+
+# Environment / secrets
+.env
+.env.*
+*.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+
+# Android / Gradle
+.gradle/
+build/
+*.apk
+*.aab
+*.aar
+local.properties
+*.keystore
+*.jks
+captures/
+.externalNativeBuild/
+.cxx/
+*.iml
+*.ipr
+*.iws
+.idea/
+android/local.properties
+android/.gradle/
+android/build/
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
